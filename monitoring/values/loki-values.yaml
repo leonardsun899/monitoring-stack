@@ -17,6 +17,16 @@ singleBinary:
   replicas: 1
   enabled: true
 
+# 禁用其他部署模式
+simpleScalable:
+  enabled: false
+read:
+  enabled: false
+write:
+  enabled: false
+backend:
+  enabled: false
+
 persistence:
   enabled: true
   storageClassName: do-block-storage
