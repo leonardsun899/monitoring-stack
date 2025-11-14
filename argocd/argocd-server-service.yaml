@@ -3,6 +3,10 @@ kind: Service
 metadata:
   name: argocd-server
   namespace: argocd
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/part-of: argocd
 spec:
   type: LoadBalancer  # 改为 LoadBalancer 以便外部访问
   ports:
