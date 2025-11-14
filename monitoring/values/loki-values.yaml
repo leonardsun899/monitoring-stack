@@ -20,15 +20,19 @@ singleBinary:
   enabled: true
   replicas: 1
 
-# 禁用其他部署模式（必须显式禁用）
+# 禁用其他部署模式（必须显式禁用，且 replicas 必须设置为 0）
 simpleScalable:
   enabled: false
+  replicas: 0  # 必须显式设置为 0，否则会与 singleBinary 冲突
 read:
   enabled: false
+  replicas: 0
 write:
   enabled: false
+  replicas: 0
 backend:
   enabled: false
+  replicas: 0
 
 # 持久化存储
 persistence:
