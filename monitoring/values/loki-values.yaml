@@ -1,6 +1,5 @@
 loki:
   auth_enabled: false
-  useTestSchema: true  # 用于快速测试，使用测试 schema
   commonConfig:
     replication_factor: 1
   storage:
