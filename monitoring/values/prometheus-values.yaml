@@ -18,7 +18,9 @@ server:
       memory: 4Gi
   service:
     type: ClusterIP
-    port: 80
+    # 注意：标准 Prometheus chart 默认端口是 9090
+    # 如果设置为 80，需要确保 Service 正确配置
+    # 建议使用默认 9090 端口，然后在 Grafana 中配置正确的 URL
 
 # Alertmanager 配置
 alertmanager:
