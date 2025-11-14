@@ -1,103 +1,40 @@
-prometheus:
-  enabled: true
-  prometheusSpec:
-    retention: 30d
-    storageSpec:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: do-block-storage
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 100Gi
-    resources:
-      requests:
-        cpu: 500m
-        memory: 2Gi
-      limits:
-        cpu: 2000m
-        memory: 4Gi
-    serviceMonitorSelectorNilUsesHelmValues: false
-    podMonitorSelectorNilUsesHelmValues: false
-    ruleSelectorNilUsesHelmValues: false
+# 标准 Prometheus Chart 配置
+# 注意：这个 chart 不包含 Grafana，Grafana 需要单独部署
 
-grafana:
+# Prometheus Server 配置
+server:
   enabled: true
-  # 不配置 admin 部分，让 Helm chart 使用默认配置
-  # admin 配置会导致模板错误，使用 secret 配置即可
-  secret:
-    admin-user: admin
-    admin-password: "admin"
-  persistence:
+  persistentVolume:
     enabled: true
-    storageClassName: do-block-storage
-    size: 10Gi
+    storageClass: do-block-storage
+    size: 100Gi
+  retention: 30d
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
   service:
-    type: LoadBalancer  # 测试环境使用 LoadBalancer，生产环境建议使用 ClusterIP + ALB
+    type: ClusterIP
     port: 80
-  datasources:
-    datasources.yaml:
-      apiVersion: 1
-      datasources:
-        - name: Prometheus
-          type: prometheus
-          access: proxy
-          url: http://prometheus-operated.monitoring.svc:9090
-          isDefault: true
-          editable: true
-        - name: Loki
-          type: loki
-          access: proxy
-          url: http://loki.monitoring.svc:3100
-          isDefault: false
-          editable: true
-  dashboardProviders:
-    dashboardproviders.yaml:
-      apiVersion: 1
-      providers:
-        - name: "default"
-          orgId: 1
-          folder: ""
-          type: file
-          disableDeletion: false
-          editable: true
-          options:
-            path: /var/lib/grafana/dashboards/default
-  dashboards:
-    default:
-      kubernetes-cluster-monitoring:
-        gnetId: 7249
-        revision: 1
-        datasource: Prometheus
-      node-exporter:
-        gnetId: 1860
-        revision: 27
-        datasource: Prometheus
-      nginx-exporter:
-        gnetId: 12708
-        revision: 1
-        datasource: Prometheus
-      loki-logs:
-        gnetId: 13639
-        revision: 1
-        datasource: Loki
 
+# Alertmanager 配置
 alertmanager:
   enabled: true
+  persistentVolume:
+    enabled: true
+    storageClass: do-block-storage
+    size: 10Gi
 
+# Node Exporter 配置
 nodeExporter:
   enabled: true
 
-kubeStateMetrics:
-  enabled: true
+# Pushgateway 配置（可选）
+pushgateway:
+  enabled: false
 
-defaultRules:
-  create: true
-
+# 注意：标准 prometheus chart 不包含 Grafana
+# 如果需要 Grafana，需要单独部署或继续使用 kube-prometheus-stack
