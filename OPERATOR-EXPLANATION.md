@@ -26,6 +26,264 @@
 
 ---
 
+## 🔷 什么是 Prometheus CR？
+
+### CR 的含义
+
+**CR = Custom Resource（自定义资源）**
+
+Prometheus CR 是 Prometheus Operator 定义的一种**自定义资源类型**，它扩展了 Kubernetes 的原生资源。
+
+### 理解层次
+
+#### 1. Kubernetes 原生资源（你熟悉的）
+
+```yaml
+# Pod - Kubernetes 原生资源
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+spec:
+  containers:
+    - name: nginx
+      image: nginx:latest
+
+# Service - Kubernetes 原生资源
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+spec:
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+```
+
+#### 2. 自定义资源（CR）- Prometheus CR
+
+```yaml
+# Prometheus CR - 自定义资源
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  retention: 30d
+  storageSpec:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: do-block-storage
+        resources:
+          requests:
+            storage: 100Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+```
+
+### 关键区别
+
+| 特性 | Kubernetes 原生资源 | Prometheus CR（自定义资源） |
+|------|-------------------|---------------------------|
+| **定义** | Kubernetes 核心定义 | 由 Prometheus Operator 通过 CRD 定义 |
+| **API 版本** | `v1`, `apps/v1` | `monitoring.coreos.com/v1` |
+| **处理者** | Kubernetes 核心控制器 | Prometheus Operator |
+| **作用** | 直接创建资源（Pod、Service） | 声明期望状态，Operator 创建实际资源 |
+
+### Prometheus CR 的结构
+
+```yaml
+apiVersion: monitoring.coreos.com/v1  # CRD 定义的 API 版本
+kind: Prometheus                      # 资源类型（由 CRD 定义）
+metadata:
+  name: prometheus                    # CR 的名称
+  namespace: monitoring               # 所在的命名空间
+spec:                                 # 期望状态（你想要的配置）
+  retention: 30d                     # 数据保留 30 天
+  storageSpec:                        # 存储配置
+    volumeClaimTemplate:
+      spec:
+        storageClassName: do-block-storage
+        resources:
+          requests:
+            storage: 100Gi
+  resources:                          # 资源限制
+    requests:
+      cpu: 500m
+      memory: 2Gi
+```
+
+### CRD vs CR
+
+**CRD（Custom Resource Definition）** = 模板/定义
+- 定义了一种新的资源类型
+- 告诉 Kubernetes："现在有一种新的资源类型叫 `Prometheus`"
+- 由 Helm Chart 在安装时创建
+
+**CR（Custom Resource）** = 实例
+- 根据 CRD 创建的**具体实例**
+- 告诉 Operator："我想要一个这样的 Prometheus"
+- 由 Helm Chart 根据 `values.yaml` 生成
+
+**类比**：
+- **CRD** = 类（Class）的定义
+- **CR** = 类的实例（Instance）
+
+```
+CRD (定义)
+  └── 定义了 Prometheus 资源的结构
+      └── spec.retention 是什么类型
+      └── spec.storageSpec 包含什么字段
+      └── spec.resources 如何配置
+
+CR (实例)
+  └── 根据 CRD 创建的具体 Prometheus
+      └── spec.retention: 30d
+      └── spec.storageSpec: {...}
+      └── spec.resources: {...}
+```
+
+### 在你的场景中
+
+#### 1. Helm Chart 安装时创建 CRD
+
+```bash
+# Helm Chart 安装时会创建 CRD
+kubectl get crd | grep prometheus
+
+# 输出示例：
+# prometheuses.monitoring.coreos.com
+# servicemonitors.monitoring.coreos.com
+# prometheusrules.monitoring.coreos.com
+```
+
+#### 2. Helm Chart 根据 values.yaml 生成 Prometheus CR
+
+**你的配置**（`monitoring/values/prometheus-values.yaml`）：
+```yaml
+prometheus:
+  enabled: true
+  prometheusSpec:
+    retention: 30d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: do-block-storage
+          resources:
+            requests:
+              storage: 100Gi
+```
+
+**Helm Chart 生成的实际 CR**：
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: prometheus-kube-prometheus-prometheus
+  namespace: monitoring
+spec:
+  retention: 30d
+  storageSpec:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: do-block-storage
+        resources:
+          requests:
+            storage: 100Gi
+```
+
+#### 3. 查看实际的 Prometheus CR
+
+```bash
+# 查看 Prometheus CR
+kubectl get prometheus -n monitoring
+
+# 输出示例：
+# NAME                                    VERSION   REPLICAS   AGE
+# prometheus-kube-prometheus-prometheus   v2.48.0   1          5d
+
+# 查看 CR 的详细信息
+kubectl get prometheus -n monitoring prometheus-kube-prometheus-prometheus -o yaml
+
+# 查看 CR 的状态
+kubectl describe prometheus -n monitoring prometheus-kube-prometheus-prometheus
+```
+
+### Prometheus CR 的作用
+
+1. **声明式配置**：你只需要声明"我想要什么样的 Prometheus"，不需要关心如何创建 Pod、Service 等
+2. **自动转换**：Operator 读取 CR，自动创建 StatefulSet、Service、ConfigMap、PVC 等
+3. **状态管理**：Operator 持续监控，确保实际状态与 CR 中声明的状态一致
+
+### 工作流程
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 1. Helm Chart 安装                                        │
+│    - 创建 CRD: prometheuses.monitoring.coreos.com        │
+│    - 部署 Prometheus Operator                            │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+                  ↓
+┌─────────────────────────────────────────────────────────┐
+│ 2. Helm Chart 根据 values.yaml 生成 Prometheus CR       │
+│    apiVersion: monitoring.coreos.com/v1                  │
+│    kind: Prometheus                                      │
+│    spec:                                                 │
+│      retention: 30d                                      │
+│      storageSpec: {...}                                  │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+                  ↓
+┌─────────────────────────────────────────────────────────┐
+│ 3. Prometheus Operator 监听到 CR 创建                    │
+│    - 读取 CR 的 spec 配置                                │
+│    - 根据配置创建实际资源                                 │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+                  ↓
+┌─────────────────────────────────────────────────────────┐
+│ 4. Operator 创建实际资源                                  │
+│    ✓ StatefulSet (运行 Prometheus)                      │
+│    ✓ Service (prometheus-operated)                     │
+│    ✓ ConfigMap (Prometheus 配置)                        │
+│    ✓ PVC (持久化存储)                                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 常见问题
+
+**Q: Prometheus CR 和 Prometheus Pod 是什么关系？**
+
+A: 
+- **Prometheus CR** = 配置/声明（你想要什么）
+- **Prometheus Pod** = 实际运行的应用（Operator 根据 CR 创建的）
+
+**Q: 我可以直接创建 Prometheus CR 吗？**
+
+A: 可以，但通常通过 Helm Chart 管理更方便：
+- Helm Chart 会根据 `values.yaml` 自动生成 CR
+- 如果直接创建 CR，需要手动管理所有配置
+
+**Q: 如何修改 Prometheus 配置？**
+
+A: 修改 `monitoring/values/prometheus-values.yaml`，然后：
+```bash
+# ArgoCD 会自动同步（如果启用了 auto-sync）
+# 或者手动同步
+argocd app sync prometheus
+```
+
+**Q: CR 被删除会发生什么？**
+
+A: Operator 会检测到 CR 被删除，自动清理所有相关资源（StatefulSet、Service、PVC 等）。
+
+---
+
 ## 🎯 在监控场景中的具体作用
 
 ### Prometheus Operator 的作用
