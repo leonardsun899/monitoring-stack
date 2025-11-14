@@ -1,0 +1,35 @@
+# Loki 最小化配置
+# 只包含必需的配置项，用于排查问题
+
+deploymentMode: SingleBinary
+
+singleBinary:
+  enabled: true
+  replicas: 1
+
+simpleScalable:
+  enabled: false
+  replicas: 0
+
+loki:
+  auth_enabled: false
+  storage:
+    type: filesystem
+
+persistence:
+  enabled: true
+  storageClassName: do-block-storage
+  size: 50Gi
+
+chunksCache:
+  enabled: false
+
+resultsCache:
+  enabled: false
+
+gateway:
+  enabled: false
+
+canary:
+  enabled: false
+
