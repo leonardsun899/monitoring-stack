@@ -32,12 +32,15 @@ without an object storage backend.
 **后续问题：**
 - `loki-chunks-cache-0` Pod 处于 `Pending` 状态
 - Application 健康状态显示为 `Progressing` 而不是 `Healthy`
+- Helm 模板验证错误："You have more than zero replicas configured for both the single binary and simple scalable targets"
 
 ### 原因分析
 
 1. **初始问题**：Loki Helm Chart 6.0.0 版本默认使用分布式模式（distributed mode），该模式需要配置对象存储后端（如 S3、GCS、Azure Blob 等）。但我们的配置使用的是 `filesystem` 存储类型，这会导致验证失败。
 
 2. **Pending 问题**：在 SingleBinary 模式下，缓存组件（chunksCache、resultsCache）和 Gateway 不是必需的，但 Helm Chart 默认会尝试创建它们，导致资源分配问题或配置冲突。
+
+3. **Replicas 冲突问题**：即使设置了 `simpleScalable.enabled: false`，如果 `replicas` 没有显式设置为 `0`，Helm Chart 验证会失败，因为默认值可能不是 0。
 
 ### 解决方案
 
@@ -66,15 +69,19 @@ singleBinary:
   enabled: true
   replicas: 1
 
-# 禁用其他部署模式（必须显式禁用）
+# 禁用其他部署模式（必须显式禁用，且 replicas 必须设置为 0）
 simpleScalable:
   enabled: false
+  replicas: 0  # 必须显式设置为 0，否则会与 singleBinary 冲突
 read:
   enabled: false
+  replicas: 0
 write:
   enabled: false
+  replicas: 0
 backend:
   enabled: false
+  replicas: 0
 
 # 持久化存储
 persistence:
@@ -124,10 +131,11 @@ monitoring:
 
 **关键点：**
 - `deploymentMode: SingleBinary` 是必需的，告诉 Helm Chart 使用单实例模式
-- 必须显式禁用其他模式（simpleScalable, read, write, backend），否则 Helm Chart 验证会失败
+- 必须显式禁用其他模式（simpleScalable, read, write, backend），**且必须将 replicas 设置为 0**，否则 Helm Chart 验证会失败
 - **必须禁用缓存组件**（chunksCache、resultsCache），否则会导致 Pod Pending
 - **建议禁用 Gateway**，让组件直接访问 Loki Service，简化架构
 - 如果只设置 `singleBinary.enabled: true` 而不设置 `deploymentMode`，会出现错误："You have more than zero replicas configured for both the single binary and simple scalable targets"
+- **重要**：即使 `enabled: false`，也必须显式设置 `replicas: 0`，因为 Helm Chart 的默认值可能不是 0
 
 ### 验证
 
