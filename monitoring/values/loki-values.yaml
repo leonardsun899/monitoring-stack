@@ -1,40 +1,17 @@
-# Loki 配置
-loki:
-  auth_enabled: false
-  commonConfig:
-    replication_factor: 1
-  storage:
-    type: filesystem
-  limits_config:
-    retention_period: 720h
-    ingestion_rate_mb: 16
-    ingestion_burst_size_mb: 32
-    max_query_parallelism: 32
-    max_query_series: 500
+# Loki 配置 - 使用 SingleBinary 模式（不需要 S3）
+# 如果使用默认 Helm Chart 配置（SimpleScalable），需要配置 S3 存储
+# 详见 COMPLETE-MONITORING-STACK-SETUP.md 中的 S3 配置说明
 
-# 使用单实例模式，不需要对象存储
-# 重要：必须设置 deploymentMode，否则会报错
+# 使用单实例模式，使用文件系统存储（不需要 S3）
 deploymentMode: SingleBinary
 
-# SingleBinary 配置
 singleBinary:
   enabled: true
-  replicas: 1
 
-# 禁用 SimpleScalable 模式（必须显式禁用，且 replicas 必须设置为 0）
-# 注意：这些配置必须在 singleBinary 之后，确保优先级正确
+# 禁用 SimpleScalable 模式（默认模式需要 S3）
 simpleScalable:
   enabled: false
   replicas: 0
-  # 显式禁用所有 simpleScalable 的子组件
-  frontend:
-    replicas: 0
-  querier:
-    replicas: 0
-  distributor:
-    replicas: 0
-  ingester:
-    replicas: 0
 
 # 禁用其他部署模式
 read:
@@ -47,41 +24,25 @@ backend:
   enabled: false
   replicas: 0
 
-# 持久化存储
+# Loki 基础配置
+loki:
+  auth_enabled: false
+  storage:
+    type: filesystem
+
+# 持久化存储（AWS EKS 使用 gp3）
 persistence:
   enabled: true
-  storageClassName: do-block-storage
+  storageClassName: gp3
   size: 50Gi
 
-# 资源限制
-resources:
-  requests:
-    cpu: 200m
-    memory: 512Mi
-  limits:
-    cpu: 1000m
-    memory: 2Gi
-
-# Service 配置
-service:
-  type: ClusterIP
-  port: 3100
-
-# 禁用所有缓存组件（SingleBinary 模式不需要）
+# 禁用不需要的组件（SingleBinary 模式）
 chunksCache:
   enabled: false
-
 resultsCache:
   enabled: false
-
-# 禁用 Gateway（SingleBinary 模式直接使用 Service）
-# 组件应该直接访问 loki Service: http://loki.monitoring.svc:3100
 gateway:
   enabled: false
-
-# 禁用 Canary（测试组件，非必需）
 canary:
   enabled: false
-
-# 注意：monitoring 配置块可能不是必需的，如果还有错误可以尝试移除
 

@@ -26,12 +26,15 @@ kubectl get storageclass
 
 常见存储类名称：
 
-- AWS EKS: `gp3`, `gp2`
+- **AWS EKS**: `gp3`（推荐）, `gp2`
 - DigitalOcean: `do-block-storage`
 - GKE: `standard`, `premium-rwo`
 - 其他: 查看上述命令的输出
 
-**重要：** 在部署前，需要将所有配置文件中的 `storageClassName` 替换为实际环境的存储类名称。
+**重要：** 
+- 本指南默认使用 AWS EKS，所有配置文件中的 `storageClassName` 已设置为 `gp3`
+- 如果使用其他云平台，需要修改相应的 `storageClassName`
+- **Loki 默认配置需要 S3 存储**：如果使用 Loki 的默认 Helm Chart 配置（SimpleScalable 模式），需要提前配置 AWS S3。详见 Step 3.5.1 的说明
 
 ## 🚀 Step 1: 安装 ArgoCD
 
@@ -173,36 +176,27 @@ spec:
 **`test-app/values/nginx-values.yaml`**
 
 ```yaml
-# Nginx 基础配置
-replicaCount: 2
+# Nginx 测试应用配置
+# 尽量使用 Helm Chart 默认配置，只覆盖必要的设置
+
+# 服务类型：LoadBalancer（用于外部访问）
 service:
   type: LoadBalancer
-  ports:
-    http: 80
 
-# 启用 Prometheus Metrics Exporter
+# 启用 Prometheus Metrics Exporter（用于监控）
 metrics:
   enabled: true
-  service:
-    type: ClusterIP
-    port: 9113
   serviceMonitor:
     enabled: true
     namespace: monitoring
     labels:
       release: prometheus
-    interval: 30s
-    scrapeTimeout: 10s
-
-# 资源限制
-resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 500m
-    memory: 256Mi
 ```
+
+**说明：**
+- 尽量使用 Helm Chart 默认配置
+- 只覆盖必要的设置（LoadBalancer 服务类型和 Metrics Exporter）
+- 其他配置（如副本数、资源限制等）使用默认值
 
 **注意：** 如果使用 Git 仓库，需要将 values 文件提交到仓库。如果直接使用，可以修改 Application 配置。
 
@@ -419,135 +413,178 @@ spec:
 
 ### 3.5 创建 Values 文件
 
+#### 3.5.1 Loki 配置说明
+
+**重要：Loki Helm Chart 默认配置需要 S3 存储**
+
+Loki Helm Chart 的默认配置使用 `SimpleScalable` 模式，**需要 S3 兼容的对象存储**（如 AWS S3）。如果不想使用 S3，需要使用 `SingleBinary` 模式（使用文件系统存储）。
+
+**选项 A：使用 SingleBinary 模式（不需要 S3，推荐用于测试）**
+
 **`monitoring/values/loki-values.yaml`**
 
 ```yaml
-loki:
-  auth_enabled: false
-  commonConfig:
-    replication_factor: 1
-  storage:
-    type: filesystem
-  limits_config:
-    retention_period: 720h
-    ingestion_rate_mb: 16
-    ingestion_burst_size_mb: 32
-    max_query_parallelism: 32
-    max_query_series: 500
+# Loki 配置 - 使用 SingleBinary 模式（不需要 S3）
+# 如果使用默认 Helm Chart 配置（SimpleScalable），需要配置 S3 存储
 
-# 使用单实例模式，不需要对象存储
-# 如果使用分布式模式，需要配置对象存储（S3、GCS 等）
-# 重要：必须设置 deploymentMode，否则会报错
+# 使用单实例模式，使用文件系统存储（不需要 S3）
 deploymentMode: SingleBinary
+
 singleBinary:
-  replicas: 1
   enabled: true
 
-# 禁用其他部署模式，避免冲突
+# 禁用 SimpleScalable 模式（默认模式需要 S3）
 simpleScalable:
   enabled: false
+  replicas: 0
+
+# 禁用其他部署模式
 read:
   enabled: false
+  replicas: 0
 write:
   enabled: false
+  replicas: 0
 backend:
   enabled: false
+  replicas: 0
 
+# Loki 基础配置
+loki:
+  auth_enabled: false
+  storage:
+    type: filesystem
+
+# 持久化存储（AWS EKS 使用 gp3）
 persistence:
   enabled: true
-  storageClassName: do-block-storage # 根据实际环境修改：AWS EKS 使用 gp3，DigitalOcean 使用 do-block-storage
+  storageClassName: gp3
   size: 50Gi
 
-resources:
-  requests:
-    cpu: 200m
-    memory: 512Mi
-  limits:
-    cpu: 1000m
-    memory: 2Gi
-
-service:
-  type: ClusterIP
-  port: 3100
+# 禁用不需要的组件（SingleBinary 模式）
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+gateway:
+  enabled: false
+canary:
+  enabled: false
 ```
 
-**重要提示：**
+**选项 B：使用默认 SimpleScalable 模式（需要 S3，推荐用于生产）**
 
-- `deploymentMode: SingleBinary` 是必需的，告诉 Helm Chart 使用单实例模式
-- `singleBinary.enabled: true` 是必需的，否则 Loki 会尝试使用分布式模式，需要对象存储
-- 必须显式禁用其他模式（simpleScalable, read, write, backend），否则 Helm Chart 验证会失败
-- 如果只设置 `singleBinary.enabled: true` 而不设置 `deploymentMode`，会出现错误："You have more than zero replicas configured for both the single binary and simple scalable targets"
-- `storageClassName` 需要根据实际环境修改：
-  - AWS EKS: `gp3` 或 `gp2`
-  - DigitalOcean: `do-block-storage`
-  - GKE: `standard` 或 `premium-rwo`
-  - 其他环境：使用 `kubectl get storageclass` 查看可用的存储类
+如果使用默认 Helm Chart 配置，需要提前配置 S3 存储。详见下面的 **S3 配置说明**。
+
+**`monitoring/values/loki-values-s3.yaml`**（可选，如果使用 S3）
+
+```yaml
+# Loki 配置 - 使用默认 SimpleScalable 模式（需要 S3）
+# 尽量使用 Helm Chart 默认配置，只覆盖必要的 S3 设置
+
+loki:
+  auth_enabled: false
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki-storage  # 替换为你的 S3 存储桶名称
+      ruler: loki-storage    # 替换为你的 S3 存储桶名称
+    s3:
+      endpoint: s3.amazonaws.com  # AWS S3 端点
+      region: us-west-2            # 替换为你的 AWS 区域
+      s3ForcePathStyle: false
+      secretAccessKey:
+        name: loki-s3-credentials  # Kubernetes Secret 名称
+        key: AWS_SECRET_ACCESS_KEY
+      accessKeyId:
+        name: loki-s3-credentials  # Kubernetes Secret 名称
+        key: AWS_ACCESS_KEY_ID
+
+# 持久化存储（用于索引，不是日志数据）
+persistence:
+  enabled: true
+  storageClassName: gp3
+  size: 10Gi
+```
+
+**S3 配置说明（如果使用选项 B）**
+
+如果选择使用默认的 SimpleScalable 模式，需要提前配置 AWS S3：
+
+1. **创建 S3 存储桶**
+   ```bash
+   aws s3 mb s3://loki-storage --region us-west-2
+   ```
+
+2. **创建 IAM 用户和访问密钥**
+   - 在 AWS 控制台创建 IAM 用户
+   - 附加策略允许访问 S3 存储桶：
+     ```json
+     {
+       "Version": "2012-10-17",
+       "Statement": [
+         {
+           "Effect": "Allow",
+           "Action": [
+             "s3:PutObject",
+             "s3:GetObject",
+             "s3:DeleteObject",
+             "s3:ListBucket"
+           ],
+           "Resource": [
+             "arn:aws:s3:::loki-storage",
+             "arn:aws:s3:::loki-storage/*"
+           ]
+         }
+       ]
+     }
+     ```
+   - 创建访问密钥（Access Key ID 和 Secret Access Key）
+
+3. **创建 Kubernetes Secret**
+   ```bash
+   kubectl create secret generic loki-s3-credentials \
+     --from-literal=AWS_ACCESS_KEY_ID="你的 Access Key ID" \
+     --from-literal=AWS_SECRET_ACCESS_KEY="你的 Secret Access Key" \
+     --namespace monitoring
+   ```
+
+4. **使用 S3 配置部署**
+   - 修改 `monitoring/argocd/loki.yaml` 中的 `valueFiles` 为 `loki-values-s3.yaml`
+   - 或直接使用 `loki-values-s3.yaml` 的内容更新 `loki-values.yaml`
+
+**推荐方案：**
+- **测试环境**：使用选项 A（SingleBinary 模式，不需要 S3）
+- **生产环境**：使用选项 B（SimpleScalable 模式，需要 S3，更好的可扩展性）
+
+#### 3.5.2 Promtail 配置
 
 **`monitoring/values/promtail-values.yaml`**
 
 ```yaml
+# Promtail 配置
+# 尽量使用 Helm Chart 默认配置，只覆盖必要的设置
+
+# 配置 Promtail 连接到 Loki
 config:
   clients:
     - url: http://loki.monitoring.svc:3100/loki/api/v1/push
-  server:
-    http_listen_port: 3101
-    grpc_listen_port: 9096
-  positions:
-    filename: /tmp/positions.yaml
-  scrape_configs:
-    - job_name: kubernetes-pods
-      kubernetes_sd_configs:
-        - role: pod
-      relabel_configs:
-        - source_labels:
-            - __meta_kubernetes_pod_phase
-          regex: Running
-          action: keep
-        - action: labelmap
-          regex: __meta_kubernetes_pod_label_(.+)
-        - action: replace
-          replacement: $1
-          separator: /
-          source_labels:
-            - __meta_kubernetes_namespace
-            - __meta_kubernetes_pod_name
-          target_label: job
-        - action: replace
-          source_labels:
-            - __meta_kubernetes_namespace
-          target_label: namespace
-        - action: replace
-          source_labels:
-            - __meta_kubernetes_pod_name
-          target_label: pod
-        - action: replace
-          source_labels:
-            - __meta_kubernetes_pod_container_name
-          target_label: container
-        - replacement: /var/log/pods/*$1/*.log
-          separator: /
-          source_labels:
-            - __meta_kubernetes_pod_uid
-            - __meta_kubernetes_pod_container_name
-          target_label: __path__
-      pipeline_stages:
-        - docker: {}
-
-resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 500m
-    memory: 512Mi
-
-daemonset:
-  enabled: true
 ```
+
+**说明：**
+- Promtail Helm Chart 默认配置已经包含了 Kubernetes Pod 日志收集配置
+- 只需要配置 Loki 的连接地址即可
+- 其他配置（如资源限制、DaemonSet 等）使用默认值
+
+#### 3.5.3 Prometheus + Grafana 配置
 
 **`monitoring/values/prometheus-values.yaml`**
 
 ```yaml
+# Prometheus + Grafana 配置
+# 尽量使用 Helm Chart 默认配置，只覆盖必要的设置
+
+# Prometheus 配置
 prometheus:
   enabled: true
   prometheusSpec:
@@ -555,43 +592,29 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: do-block-storage # 根据实际环境修改
+          storageClassName: gp3  # AWS EKS 使用 gp3
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
               storage: 100Gi
-    resources:
-      requests:
-        cpu: 500m
-        memory: 2Gi
-      limits:
-        cpu: 2000m
-        memory: 4Gi
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
 
+# Grafana 配置
 grafana:
   enabled: true
-  # 不配置 admin 部分，让 Helm chart 使用默认配置
-  # admin 配置会导致模板错误，使用 secret 配置即可
+  # 使用 secret 配置管理员账户（避免模板错误）
   secret:
     admin-user: admin
-    admin-password: "admin" # 生产环境请使用强密码，建议使用 Kubernetes Secret 管理工具
+    admin-password: "admin"  # 生产环境请使用强密码
   persistence:
     enabled: true
-    storageClassName: do-block-storage # 根据实际环境修改
+    storageClassName: gp3  # AWS EKS 使用 gp3
     size: 10Gi
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
   service:
-    type: LoadBalancer # 测试环境使用 LoadBalancer，生产环境建议使用 ClusterIP + ALB
-    port: 80
+    type: LoadBalancer  # 测试环境使用 LoadBalancer
+  # 配置数据源
   datasources:
     datasources.yaml:
       apiVersion: 1
@@ -601,25 +624,12 @@ grafana:
           access: proxy
           url: http://prometheus-operated.monitoring.svc:9090
           isDefault: true
-          editable: true
         - name: Loki
           type: loki
           access: proxy
           url: http://loki.monitoring.svc:3100
-          isDefault: false # 重要：只能有一个数据源是默认的
-          editable: true
-  dashboardProviders:
-    dashboardproviders.yaml:
-      apiVersion: 1
-      providers:
-        - name: "default"
-          orgId: 1
-          folder: ""
-          type: file
-          disableDeletion: false
-          editable: true
-          options:
-            path: /var/lib/grafana/dashboards/default
+          isDefault: false  # 只能有一个默认数据源
+  # 预装仪表板
   dashboards:
     default:
       kubernetes-cluster-monitoring:
@@ -639,18 +649,21 @@ grafana:
         revision: 1
         datasource: Loki
 
+# 启用其他组件（使用默认配置）
 alertmanager:
   enabled: true
-
 nodeExporter:
   enabled: true
-
 kubeStateMetrics:
   enabled: true
-
 defaultRules:
   create: true
 ```
+
+**说明：**
+- 大部分配置使用 Helm Chart 默认值
+- 只覆盖必要的设置（存储类、数据源、仪表板等）
+- `storageClassName` 已设置为 `gp3`（AWS EKS）
 
 ### 3.6 部署监控栈（按顺序）
 

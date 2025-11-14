@@ -1,31 +1,16 @@
-# Nginx 基础配置
-replicaCount: 2
-# 不指定 image，使用 chart 默认镜像（latest tag）
+# Nginx 测试应用配置
+# 尽量使用 Helm Chart 默认配置，只覆盖必要的设置
+
+# 服务类型：LoadBalancer（用于外部访问）
 service:
   type: LoadBalancer
-  ports:
-    http: 80
 
-# 启用 Prometheus Metrics Exporter
+# 启用 Prometheus Metrics Exporter（用于监控）
 metrics:
   enabled: true
-  service:
-    type: ClusterIP
-    port: 9113
   serviceMonitor:
     enabled: true
     namespace: monitoring
     labels:
       release: prometheus
-    interval: 30s
-    scrapeTimeout: 10s
-
-# 资源限制
-resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 500m
-    memory: 256Mi
 

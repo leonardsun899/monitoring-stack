@@ -1,17 +1,7 @@
-# Prometheus Operator 配置
-# 确保 CRD 在 Operator 之前创建
-prometheusOperator:
-  # 确保 CRD 被创建（默认已启用）
-  createCustomResource: true
-  # 资源限制，确保 Operator 有足够资源启动
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
+# Prometheus + Grafana 配置
+# 尽量使用 Helm Chart 默认配置，只覆盖必要的设置
 
+# Prometheus 配置
 prometheus:
   enabled: true
   prometheusSpec:
@@ -19,43 +9,29 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: do-block-storage
+          storageClassName: gp3  # AWS EKS 使用 gp3
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
               storage: 100Gi
-    resources:
-      requests:
-        cpu: 500m
-        memory: 2Gi
-      limits:
-        cpu: 2000m
-        memory: 4Gi
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
 
+# Grafana 配置
 grafana:
   enabled: true
-  # 不配置 admin 部分，让 Helm chart 使用默认配置
-  # admin 配置会导致模板错误，使用 secret 配置即可
+  # 使用 secret 配置管理员账户（避免模板错误）
   secret:
     admin-user: admin
-    admin-password: "admin"
+    admin-password: "admin"  # 生产环境请使用强密码
   persistence:
     enabled: true
-    storageClassName: do-block-storage
+    storageClassName: gp3  # AWS EKS 使用 gp3
     size: 10Gi
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
   service:
-    type: LoadBalancer  # 测试环境使用 LoadBalancer，生产环境建议使用 ClusterIP + ALB
-    port: 80
+    type: LoadBalancer  # 测试环境使用 LoadBalancer
+  # 配置数据源
   datasources:
     datasources.yaml:
       apiVersion: 1
@@ -65,25 +41,12 @@ grafana:
           access: proxy
           url: http://prometheus-operated.monitoring.svc:9090
           isDefault: true
-          editable: true
         - name: Loki
           type: loki
           access: proxy
           url: http://loki.monitoring.svc:3100
-          isDefault: false  # 重要：只能有一个数据源是默认的
-          editable: true
-  dashboardProviders:
-    dashboardproviders.yaml:
-      apiVersion: 1
-      providers:
-        - name: "default"
-          orgId: 1
-          folder: ""
-          type: file
-          disableDeletion: false
-          editable: true
-          options:
-            path: /var/lib/grafana/dashboards/default
+          isDefault: false  # 只能有一个默认数据源
+  # 预装仪表板
   dashboards:
     default:
       kubernetes-cluster-monitoring:
@@ -103,14 +66,12 @@ grafana:
         revision: 1
         datasource: Loki
 
+# 启用其他组件（使用默认配置）
 alertmanager:
   enabled: true
-
 nodeExporter:
   enabled: true
-
 kubeStateMetrics:
   enabled: true
-
 defaultRules:
   create: true
