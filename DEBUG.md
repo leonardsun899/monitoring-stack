@@ -15,10 +15,11 @@
 
 ---
 
-## 🔍 问题 1: Loki - 对象存储后端错误
+## 🔍 问题 1: Loki - 对象存储后端错误和组件 Pending 问题
 
 ### 错误信息
 
+**初始错误：**
 ```
 Failed to load target state: failed to generate manifest for source 1 of 2: 
 rpc error: code = Unknown desc = Manifest generation error (cached): 
@@ -28,15 +29,22 @@ Cannot run scalable targets (backend, read, write) or distributed targets
 without an object storage backend.
 ```
 
+**后续问题：**
+- `loki-chunks-cache-0` Pod 处于 `Pending` 状态
+- Application 健康状态显示为 `Progressing` 而不是 `Healthy`
+
 ### 原因分析
 
-Loki Helm Chart 6.0.0 版本默认使用分布式模式（distributed mode），该模式需要配置对象存储后端（如 S3、GCS、Azure Blob 等）。但我们的配置使用的是 `filesystem` 存储类型，这会导致验证失败。
+1. **初始问题**：Loki Helm Chart 6.0.0 版本默认使用分布式模式（distributed mode），该模式需要配置对象存储后端（如 S3、GCS、Azure Blob 等）。但我们的配置使用的是 `filesystem` 存储类型，这会导致验证失败。
+
+2. **Pending 问题**：在 SingleBinary 模式下，缓存组件（chunksCache、resultsCache）和 Gateway 不是必需的，但 Helm Chart 默认会尝试创建它们，导致资源分配问题或配置冲突。
 
 ### 解决方案
 
-在 `monitoring/values/loki-values.yaml` 中启用单实例模式（singleBinary），并**必须**设置 `deploymentMode` 和禁用其他部署模式：
+在 `monitoring/values/loki-values.yaml` 中启用单实例模式（singleBinary），并**必须**禁用所有不必要的组件：
 
 ```yaml
+# Loki 配置
 loki:
   auth_enabled: false
   commonConfig:
@@ -53,11 +61,12 @@ loki:
 # 使用单实例模式，不需要对象存储
 # 重要：必须设置 deploymentMode，否则会报错
 deploymentMode: SingleBinary
-singleBinary:
-  replicas: 1
-  enabled: true
 
-# 禁用其他部署模式，避免冲突
+singleBinary:
+  enabled: true
+  replicas: 1
+
+# 禁用其他部署模式（必须显式禁用）
 simpleScalable:
   enabled: false
 read:
@@ -67,15 +76,57 @@ write:
 backend:
   enabled: false
 
+# 持久化存储
 persistence:
   enabled: true
-  storageClassName: do-block-storage  # 根据实际环境修改
+  storageClassName: do-block-storage
   size: 50Gi
+
+# 资源限制
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+# Service 配置
+service:
+  type: ClusterIP
+  port: 3100
+
+# 禁用所有缓存组件（SingleBinary 模式不需要）
+chunksCache:
+  enabled: false
+
+resultsCache:
+  enabled: false
+
+# 禁用 Gateway（SingleBinary 模式直接使用 Service）
+# 组件应该直接访问 loki Service: http://loki.monitoring.svc:3100
+gateway:
+  enabled: false
+
+# 禁用 Canary（测试组件，非必需）
+canary:
+  enabled: false
+
+# 禁用其他不必要的组件
+monitoring:
+  dashboards:
+    enabled: false
+  rules:
+    enabled: false
+  serviceMonitor:
+    enabled: false
 ```
 
 **关键点：**
 - `deploymentMode: SingleBinary` 是必需的，告诉 Helm Chart 使用单实例模式
 - 必须显式禁用其他模式（simpleScalable, read, write, backend），否则 Helm Chart 验证会失败
+- **必须禁用缓存组件**（chunksCache、resultsCache），否则会导致 Pod Pending
+- **建议禁用 Gateway**，让组件直接访问 Loki Service，简化架构
 - 如果只设置 `singleBinary.enabled: true` 而不设置 `deploymentMode`，会出现错误："You have more than zero replicas configured for both the single binary and simple scalable targets"
 
 ### 验证
