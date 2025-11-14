@@ -12,6 +12,7 @@ loki:
     max_query_series: 500
 
 # 使用单实例模式，不需要对象存储
+deploymentMode: SingleBinary
 singleBinary:
   replicas: 1
   enabled: true
