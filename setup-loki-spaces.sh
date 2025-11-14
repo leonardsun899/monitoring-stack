@@ -36,56 +36,136 @@ fi
 
 echo -e "${YELLOW}📋 步骤 1: 创建 DigitalOcean Spaces${NC}"
 
-# 检查 Spaces 是否已存在
-if doctl spaces list | grep -q "$SPACE_NAME"; then
-    echo -e "${YELLOW}⚠️  Spaces '$SPACE_NAME' 已存在，跳过创建${NC}"
+# 获取用户输入
+read -p "请输入 Spaces 名称 (将自动添加时间戳确保唯一性，或直接回车使用默认): " USER_SPACE_NAME
+if [ -z "$USER_SPACE_NAME" ]; then
+    SPACE_NAME="loki-storage-$(date +%s)"
 else
-    echo "创建 Spaces: $SPACE_NAME (区域: $REGION)"
-    
-    # 注意: doctl 可能不支持直接创建 Spaces，需要通过 API
-    # 这里提供手动步骤和 API 调用方法
-    echo -e "${YELLOW}⚠️  doctl 可能不支持直接创建 Spaces${NC}"
-    echo "请手动在 DigitalOcean 控制面板创建 Spaces，或使用以下 API 调用："
+    SPACE_NAME="$USER_SPACE_NAME"
+fi
+
+read -p "请输入区域 (nyc3/sfo3/sgp1/ams3/fra1，默认 nyc3): " USER_REGION
+if [ -z "$USER_REGION" ]; then
+    REGION="nyc3"
+else
+    REGION="$USER_REGION"
+fi
+
+echo ""
+echo "尝试使用 doctl API 创建 Spaces..."
+
+# 尝试使用 doctl API 创建 Spaces
+# 注意：doctl 可能不支持直接创建 Spaces，这里尝试使用 API
+ACCESS_TOKEN=$(doctl auth list --format AccessToken --no-header 2>/dev/null | head -n1)
+
+if [ -z "$ACCESS_TOKEN" ]; then
+    # 如果无法获取 token，使用手动方式
+    echo -e "${YELLOW}⚠️  无法自动创建 Spaces，请手动创建${NC}"
     echo ""
-    echo "或者使用以下命令（需要 doctl 支持）："
-    echo "  doctl compute cdn create $SPACE_NAME --region $REGION"
+    echo "请按照以下步骤创建 Spaces："
+    echo "1. 访问 https://cloud.digitalocean.com/spaces"
+    echo "2. 点击 'Create a Space'"
+    echo "3. 输入名称: $SPACE_NAME"
+    echo "4. 选择区域: $REGION"
+    echo "5. 文件列表隐私: 选择 'Restrict File Listing'"
+    echo "6. 点击 'Create a Space'"
     echo ""
-    read -p "是否已手动创建 Spaces？(y/n) " -n 1 -r
+    read -p "是否已创建 Spaces？(y/n) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${YELLOW}请先创建 Spaces，然后重新运行此脚本${NC}"
-        echo "创建步骤："
+        exit 1
+    fi
+else
+    # 尝试使用 API 创建（如果支持）
+    echo "使用 DigitalOcean API 创建 Spaces..."
+    
+    # 使用 curl 调用 DigitalOcean API
+    RESPONSE=$(curl -s -X POST \
+        -H "Authorization: Bearer $ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"$SPACE_NAME\",\"region\":\"$REGION\"}" \
+        "https://api.digitalocean.com/v2/spaces" 2>/dev/null)
+    
+    if echo "$RESPONSE" | grep -q "space"; then
+        echo -e "${GREEN}✅ Spaces 创建成功: $SPACE_NAME${NC}"
+    elif echo "$RESPONSE" | grep -q "already exists"; then
+        echo -e "${YELLOW}⚠️  Spaces '$SPACE_NAME' 已存在${NC}"
+    else
+        echo -e "${YELLOW}⚠️  API 创建失败，请手动创建${NC}"
+        echo "API 响应: $RESPONSE"
+        echo ""
+        echo "请按照以下步骤手动创建："
         echo "1. 访问 https://cloud.digitalocean.com/spaces"
         echo "2. 点击 'Create a Space'"
         echo "3. 输入名称: $SPACE_NAME"
         echo "4. 选择区域: $REGION"
-        echo "5. 创建"
-        exit 1
+        echo ""
+        read -p "是否已创建 Spaces？(y/n) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}请先创建 Spaces，然后重新运行此脚本${NC}"
+            exit 1
+        fi
     fi
 fi
 
-# 获取用户输入的 Spaces 名称和区域
-read -p "请输入你的 Spaces 名称: " SPACE_NAME
-read -p "请输入你的 Spaces 区域 (例如 nyc3, sfo3, sgp1): " REGION
-
-# 验证 Spaces 是否存在
-if ! doctl spaces list 2>/dev/null | grep -q "$SPACE_NAME"; then
-    echo -e "${YELLOW}⚠️  无法验证 Spaces 是否存在，继续执行...${NC}"
+# 验证 Spaces
+echo ""
+echo "验证 Spaces..."
+if doctl spaces list 2>/dev/null | grep -q "$SPACE_NAME"; then
+    echo -e "${GREEN}✅ Spaces 验证成功: $SPACE_NAME${NC}"
+else
+    echo -e "${YELLOW}⚠️  无法通过 doctl 验证 Spaces，但继续执行...${NC}"
+    echo "请确保 Spaces 名称和区域正确"
 fi
 
 echo -e "${GREEN}✅ Spaces 配置: $SPACE_NAME (区域: $REGION)${NC}"
 echo ""
 
 echo -e "${YELLOW}📋 步骤 2: 创建访问密钥${NC}"
-echo "访问密钥需要在 DigitalOcean 控制面板手动创建："
-echo "1. 访问 https://cloud.digitalocean.com/account/api/spaces"
-echo "2. 点击 'Generate New Key'"
-echo "3. 输入名称: $KEY_NAME"
-echo "4. 保存 Access Key 和 Secret Key"
-echo ""
 
-read -p "请输入 Access Key: " ACCESS_KEY
-read -p "请输入 Secret Key: " SECRET_KEY
+# 尝试使用 API 创建访问密钥
+echo "尝试使用 API 创建访问密钥..."
+
+ACCESS_TOKEN=$(doctl auth list --format AccessToken --no-header 2>/dev/null | head -n1)
+
+if [ -n "$ACCESS_TOKEN" ]; then
+    # 使用 API 创建密钥
+    KEY_RESPONSE=$(curl -s -X POST \
+        -H "Authorization: Bearer $ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"$KEY_NAME\"}" \
+        "https://api.digitalocean.com/v2/spaces_keys" 2>/dev/null)
+    
+    if echo "$KEY_RESPONSE" | grep -q "access_key"; then
+        ACCESS_KEY=$(echo "$KEY_RESPONSE" | grep -o '"access_key":"[^"]*' | cut -d'"' -f4)
+        SECRET_KEY=$(echo "$KEY_RESPONSE" | grep -o '"secret_key":"[^"]*' | cut -d'"' -f4)
+        echo -e "${GREEN}✅ 访问密钥创建成功${NC}"
+        echo -e "${YELLOW}⚠️  请保存以下密钥（只显示一次）：${NC}"
+        echo "Access Key: $ACCESS_KEY"
+        echo "Secret Key: $SECRET_KEY"
+    else
+        echo -e "${YELLOW}⚠️  API 创建失败，请手动创建${NC}"
+        echo "请按照以下步骤手动创建："
+        echo "1. 访问 https://cloud.digitalocean.com/account/api/spaces"
+        echo "2. 点击 'Generate New Key'"
+        echo "3. 输入名称: $KEY_NAME"
+        echo "4. 保存 Access Key 和 Secret Key"
+        echo ""
+        read -p "请输入 Access Key: " ACCESS_KEY
+        read -p "请输入 Secret Key: " SECRET_KEY
+    fi
+else
+    echo "请按照以下步骤手动创建访问密钥："
+    echo "1. 访问 https://cloud.digitalocean.com/account/api/spaces"
+    echo "2. 点击 'Generate New Key'"
+    echo "3. 输入名称: $KEY_NAME"
+    echo "4. 保存 Access Key 和 Secret Key"
+    echo ""
+    read -p "请输入 Access Key: " ACCESS_KEY
+    read -p "请输入 Secret Key: " SECRET_KEY
+fi
 
 if [ -z "$ACCESS_KEY" ] || [ -z "$SECRET_KEY" ]; then
     echo -e "${RED}❌ Access Key 和 Secret Key 不能为空${NC}"
