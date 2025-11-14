@@ -1,0 +1,25 @@
+# AWS 配置
+aws_region = "us-west-2"
+
+# EKS 集群配置
+cluster_name      = "monitoring-stack-cluster"
+kubernetes_version = "1.28"
+environment       = "production"
+
+# VPC 配置
+vpc_cidr = "10.0.0.0/16"
+availability_zones = ["us-west-2a", "us-west-2b", "us-west-2c"]
+private_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+public_subnet_cidrs  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+
+# 节点组配置
+node_min_size     = 1
+node_max_size     = 3
+node_desired_size = 2
+node_instance_types = ["t3.medium"]
+
+# Loki S3 配置
+# 注意：S3 存储桶名称必须全局唯一，建议使用：<your-org>-loki-storage-<region>-<random>
+loki_s3_bucket_name = "my-org-loki-storage-us-west-2-12345"
+loki_retention_days = 30
+
