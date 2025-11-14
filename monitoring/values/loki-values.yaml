@@ -70,12 +70,5 @@ gateway:
 canary:
   enabled: false
 
-# 禁用其他不必要的组件
-monitoring:
-  dashboards:
-    enabled: false
-  rules:
-    enabled: false
-  serviceMonitor:
-    enabled: false
+# 注意：monitoring 配置块可能不是必需的，如果还有错误可以尝试移除
 
