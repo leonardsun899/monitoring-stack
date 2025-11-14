@@ -1,0 +1,88 @@
+# Loki 配置 - 使用 DigitalOcean Spaces (对象存储)
+# 使用此配置可以避免 SingleBinary 模式的验证问题
+
+# 使用 SimpleScalable 模式（默认模式，不需要特殊配置）
+deploymentMode: SimpleScalable
+
+# SimpleScalable 模式配置
+simpleScalable:
+  enabled: true
+  replicas: 1  # 可以根据需要调整
+
+# 禁用 SingleBinary 模式
+singleBinary:
+  enabled: false
+  replicas: 0
+
+# Loki 存储配置 - DigitalOcean Spaces (S3 兼容)
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki-storage  # ⚠️ 替换为你的 Spaces 名称
+      ruler: loki-storage   # ⚠️ 替换为你的 Spaces 名称
+    s3:
+      # ⚠️ 替换为你的 Spaces 区域端点
+      # 常见端点：
+      # - nyc3.digitaloceanspaces.com (New York 3)
+      # - sfo3.digitaloceanspaces.com (San Francisco 3)
+      # - sgp1.digitaloceanspaces.com (Singapore 1)
+      # - ams3.digitaloceanspaces.com (Amsterdam 3)
+      # - fra1.digitaloceanspaces.com (Frankfurt 1)
+      endpoint: nyc3.digitaloceanspaces.com
+      region: nyc3  # ⚠️ 替换为你的 Spaces 区域
+      s3ForcePathStyle: true
+      secretAccessKey:
+        name: loki-spaces-credentials  # Kubernetes Secret 名称
+        key: AWS_SECRET_ACCESS_KEY
+      accessKeyId:
+        name: loki-spaces-credentials  # Kubernetes Secret 名称
+        key: AWS_ACCESS_KEY_ID
+  limits_config:
+    retention_period: 720h
+    ingestion_rate_mb: 16
+    ingestion_burst_size_mb: 32
+    max_query_parallelism: 32
+    max_query_series: 500
+
+# 持久化存储（用于索引，不是日志数据）
+# 索引数据较小，10Gi 足够
+persistence:
+  enabled: true
+  storageClassName: do-block-storage
+  size: 10Gi
+
+# 资源限制
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+# Service 配置
+service:
+  type: ClusterIP
+  port: 3100
+
+# 缓存组件（SimpleScalable 模式可以使用，提高性能）
+chunksCache:
+  enabled: true
+  replicas: 1
+
+resultsCache:
+  enabled: true
+  replicas: 1
+
+# Gateway（SimpleScalable 模式推荐使用）
+gateway:
+  enabled: true
+
+# Canary（可选，用于测试）
+canary:
+  enabled: false
+
