@@ -3,6 +3,7 @@
 ## 🎯 目标
 
 在空的 EKS 集群中依次安装：
+
 1. ArgoCD
 2. 测试应用（Nginx + Prometheus Exporter）
 3. 监控栈（Prometheus + Grafana + Loki + Promtail）
@@ -24,6 +25,7 @@ kubectl get storageclass
 ```
 
 常见存储类名称：
+
 - AWS EKS: `gp3`, `gp2`
 - DigitalOcean: `do-block-storage`
 - GKE: `standard`, `premium-rwo`
@@ -95,16 +97,16 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-  sources:  # 注意：使用 sources（复数）以支持多个仓库源
+  sources: # 注意：使用 sources（复数）以支持多个仓库源
     - repoURL: https://charts.bitnami.com/bitnami
       chart: nginx
       targetRevision: 15.0.0
       helm:
         valueFiles:
           - $values/test-app/values/nginx-values.yaml
-    - repoURL: https://github.com/leonardsun899/monitoring-stack.git  # 替换为你的 Git 仓库地址
+    - repoURL: https://github.com/leonardsun899/monitoring-stack.git # 替换为你的 Git 仓库地址
       targetRevision: main
-      ref: values  # 标识这个 source 用于提供 values 文件
+      ref: values # 标识这个 source 用于提供 values 文件
   destination:
     server: https://kubernetes.default.svc
     namespace: test-app
@@ -116,7 +118,8 @@ spec:
       - CreateNamespace=true
 ```
 
-**注意：** 
+**注意：**
+
 - 必须使用 `sources`（复数）而不是 `source`，因为需要同时引用 Helm Chart 仓库和 Git 仓库
 - 第一个 source 是 Helm Chart 仓库
 - 第二个 source 是 Git 仓库，用于提供 values 文件
@@ -251,7 +254,7 @@ spec:
       helm:
         valueFiles:
           - $values/monitoring/values/loki-values.yaml
-    - repoURL: https://github.com/leonardsun899/monitoring-stack.git  # 替换为你的 Git 仓库地址
+    - repoURL: https://github.com/leonardsun899/monitoring-stack.git # 替换为你的 Git 仓库地址
       targetRevision: main
       ref: values
   destination:
@@ -299,7 +302,7 @@ spec:
       helm:
         valueFiles:
           - $values/monitoring/values/promtail-values.yaml
-    - repoURL: https://github.com/leonardsun899/monitoring-stack.git  # 替换为你的 Git 仓库地址
+    - repoURL: https://github.com/leonardsun899/monitoring-stack.git # 替换为你的 Git 仓库地址
       targetRevision: main
       ref: values
   destination:
@@ -347,7 +350,7 @@ spec:
       helm:
         valueFiles:
           - $values/monitoring/values/prometheus-values.yaml
-    - repoURL: https://github.com/leonardsun899/monitoring-stack.git  # 替换为你的 Git 仓库地址
+    - repoURL: https://github.com/leonardsun899/monitoring-stack.git # 替换为你的 Git 仓库地址
       targetRevision: main
       ref: values
   destination:
@@ -391,13 +394,25 @@ loki:
 
 # 使用单实例模式，不需要对象存储
 # 如果使用分布式模式，需要配置对象存储（S3、GCS 等）
+# 重要：必须设置 deploymentMode，否则会报错
+deploymentMode: SingleBinary
 singleBinary:
   replicas: 1
   enabled: true
 
+# 禁用其他部署模式，避免冲突
+simpleScalable:
+  enabled: false
+read:
+  enabled: false
+write:
+  enabled: false
+backend:
+  enabled: false
+
 persistence:
   enabled: true
-  storageClassName: do-block-storage  # 根据实际环境修改：AWS EKS 使用 gp3，DigitalOcean 使用 do-block-storage
+  storageClassName: do-block-storage # 根据实际环境修改：AWS EKS 使用 gp3，DigitalOcean 使用 do-block-storage
   size: 50Gi
 
 resources:
@@ -414,7 +429,11 @@ service:
 ```
 
 **重要提示：**
+
+- `deploymentMode: SingleBinary` 是必需的，告诉 Helm Chart 使用单实例模式
 - `singleBinary.enabled: true` 是必需的，否则 Loki 会尝试使用分布式模式，需要对象存储
+- 必须显式禁用其他模式（simpleScalable, read, write, backend），否则 Helm Chart 验证会失败
+- 如果只设置 `singleBinary.enabled: true` 而不设置 `deploymentMode`，会出现错误："You have more than zero replicas configured for both the single binary and simple scalable targets"
 - `storageClassName` 需要根据实际环境修改：
   - AWS EKS: `gp3` 或 `gp2`
   - DigitalOcean: `do-block-storage`
@@ -493,7 +512,7 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: do-block-storage  # 根据实际环境修改
+          storageClassName: do-block-storage # 根据实际环境修改
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
@@ -511,18 +530,14 @@ prometheus:
 
 grafana:
   enabled: true
-  admin:
-    # 不要使用 existingSecret，让 Helm chart 自动创建 secret
-    # 如果指定 existingSecret，需要先手动创建该 secret
-    # existingSecret: grafana-admin-credentials
-    # userKey: admin-user
-    # passwordKey: admin-password
+  # 不配置 admin 部分，让 Helm chart 使用默认配置
+  # admin 配置会导致模板错误，使用 secret 配置即可
   secret:
     admin-user: admin
-    admin-password: "admin"  # 生产环境请使用强密码，建议使用 Kubernetes Secret 管理工具
+    admin-password: "admin" # 生产环境请使用强密码，建议使用 Kubernetes Secret 管理工具
   persistence:
     enabled: true
-    storageClassName: do-block-storage  # 根据实际环境修改
+    storageClassName: do-block-storage # 根据实际环境修改
     size: 10Gi
   resources:
     requests:
@@ -532,7 +547,7 @@ grafana:
       cpu: 500m
       memory: 512Mi
   service:
-    type: LoadBalancer  # 测试环境使用 LoadBalancer，生产环境建议使用 ClusterIP + ALB
+    type: LoadBalancer # 测试环境使用 LoadBalancer，生产环境建议使用 ClusterIP + ALB
     port: 80
   datasources:
     datasources.yaml:
@@ -645,6 +660,7 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 ### 4.3 验证 Metrics 收集
 
 **在 Grafana 中：**
+
 1. 进入 **Explore** → 选择 **Prometheus** 数据源
 2. 查询 Nginx metrics：
    ```
@@ -657,6 +673,7 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 ### 4.4 验证日志收集
 
 **在 Grafana 中：**
+
 1. 进入 **Explore** → 选择 **Loki** 数据源
 2. 查询 Nginx 日志：
    ```
@@ -693,21 +710,25 @@ done
 3. 添加 Panel，使用以下 PromQL 查询：
 
 **Panel 1: Nginx 请求率**
+
 ```
 rate(nginx_http_requests_total[5m])
 ```
 
 **Panel 2: Nginx 活跃连接数**
+
 ```
 nginx_connections_active
 ```
 
 **Panel 3: Nginx 错误率**
+
 ```
 rate(nginx_http_requests_total{status=~"5.."}[5m]) / rate(nginx_http_requests_total[5m]) * 100
 ```
 
 **Panel 4: Nginx 日志（Logs Panel）**
+
 ```
 {namespace="test-app", pod=~"nginx.*"}
 ```
@@ -737,10 +758,15 @@ kubectl describe application prometheus -n argocd
 
 ### Loki 部署失败
 
-如果遇到 "Cannot run scalable targets without an object storage backend" 错误：
+如果遇到以下错误：
+- "Cannot run scalable targets without an object storage backend"
+- "You have more than zero replicas configured for both the single binary and simple scalable targets"
 
-1. 检查 `loki-values.yaml` 中是否启用了 `singleBinary.enabled: true`
-2. 参考 [DEBUG.md](./DEBUG.md) 中的问题 1
+解决方案：
+1. 检查 `loki-values.yaml` 中是否设置了 `deploymentMode: SingleBinary`
+2. 检查是否启用了 `singleBinary.enabled: true`
+3. 检查是否禁用了其他模式（simpleScalable, read, write, backend）
+4. 参考 [DEBUG.md](./DEBUG.md) 中的问题 1
 
 ### nginx-test-app 找不到 values 文件
 
@@ -752,10 +778,15 @@ kubectl describe application prometheus -n argocd
 
 ### Grafana Pod 无法启动
 
-如果遇到 "secret not found" 错误：
+如果遇到以下错误：
+- "secret not found"
+- "nil pointer evaluating interface {}.existingSecret"
 
-1. 检查 `prometheus-values.yaml` 中是否移除了 `existingSecret` 配置
-2. 参考 [DEBUG.md](./DEBUG.md) 中的问题 3
+解决方案：
+1. 检查 `prometheus-values.yaml` 中是否**完全移除了 `admin` 配置部分**（不只是注释）
+2. 确保只保留 `secret` 配置部分
+3. 即使 `admin:` 配置是空的或注释掉的，也会导致模板错误
+4. 参考 [DEBUG.md](./DEBUG.md) 中的问题 3
 
 ### Prometheus 无法抓取 Metrics
 
@@ -816,4 +847,3 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 - [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
 - [Loki](https://github.com/grafana/helm-charts/tree/main/charts/loki)
 - [Promtail](https://github.com/grafana/helm-charts/tree/main/charts/promtail)
-

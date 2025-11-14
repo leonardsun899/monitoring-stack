@@ -34,7 +34,7 @@ Loki Helm Chart 6.0.0 版本默认使用分布式模式（distributed mode），
 
 ### 解决方案
 
-在 `monitoring/values/loki-values.yaml` 中启用单实例模式（singleBinary），这样可以使用本地文件系统存储，不需要对象存储：
+在 `monitoring/values/loki-values.yaml` 中启用单实例模式（singleBinary），并**必须**设置 `deploymentMode` 和禁用其他部署模式：
 
 ```yaml
 loki:
@@ -51,15 +51,32 @@ loki:
     max_query_series: 500
 
 # 使用单实例模式，不需要对象存储
+# 重要：必须设置 deploymentMode，否则会报错
+deploymentMode: SingleBinary
 singleBinary:
   replicas: 1
   enabled: true
+
+# 禁用其他部署模式，避免冲突
+simpleScalable:
+  enabled: false
+read:
+  enabled: false
+write:
+  enabled: false
+backend:
+  enabled: false
 
 persistence:
   enabled: true
   storageClassName: do-block-storage  # 根据实际环境修改
   size: 50Gi
 ```
+
+**关键点：**
+- `deploymentMode: SingleBinary` 是必需的，告诉 Helm Chart 使用单实例模式
+- 必须显式禁用其他模式（simpleScalable, read, write, backend），否则 Helm Chart 验证会失败
+- 如果只设置 `singleBinary.enabled: true` 而不设置 `deploymentMode`，会出现错误："You have more than zero replicas configured for both the single binary and simple scalable targets"
 
 ### 验证
 
@@ -159,24 +176,40 @@ grafana:
 
 ### 解决方案
 
-移除 `existingSecret` 配置，让 Helm Chart 自动创建 Secret：
+**完全移除 `admin` 配置部分**，只保留 `secret` 配置。如果保留空的 `admin:` 配置，会导致 Helm 模板错误：
 
 ```yaml
 grafana:
   enabled: true
-  admin:
-    # 移除 existingSecret，让 Helm chart 自动创建 secret
-    # existingSecret: grafana-admin-credentials
-    # userKey: admin-user
-    # passwordKey: admin-password
+  # 不配置 admin 部分，让 Helm chart 使用默认配置
+  # admin 配置会导致模板错误，使用 secret 配置即可
   secret:
     admin-user: admin
     admin-password: "admin"  # 生产环境请使用强密码
 ```
 
+**错误示例（会导致模板错误）：**
+```yaml
+grafana:
+  enabled: true
+  admin:
+    # 即使注释掉，空的 admin 配置也会导致错误
+    # existingSecret: grafana-admin-credentials
+  secret:
+    admin-user: admin
+    admin-password: "admin"
+```
+
+**错误信息：**
+```
+Error: template: kube-prometheus-stack/charts/grafana/templates/secret.yaml:1:27: 
+executing "kube-prometheus-stack/charts/grafana/templates/secret.yaml" at <.Values.admin.existingSecret>: 
+nil pointer evaluating interface {}.existingSecret
+```
+
 **说明：**
-- 如果指定了 `existingSecret`，Helm Chart 不会创建新的 Secret
-- 移除后，Helm Chart 会根据 `secret` 部分自动创建 Secret
+- 如果配置了 `admin:` 部分（即使是空的），Helm Chart 会尝试访问 `admin.existingSecret`，导致 nil pointer 错误
+- 完全移除 `admin` 配置，只使用 `secret` 配置，Helm Chart 会自动创建 Secret
 - 生产环境建议使用 Kubernetes Secret 管理工具（如 Sealed Secrets、External Secrets）
 
 ### 验证
@@ -257,9 +290,11 @@ argocd app sync <app-name>
 
 ## 📝 修复后的配置检查清单
 
-- [ ] Loki 配置包含 `singleBinary.enabled: true`
+- [ ] Loki 配置包含 `deploymentMode: SingleBinary` 和 `singleBinary.enabled: true`
+- [ ] Loki 配置禁用了其他模式（simpleScalable, read, write, backend）
 - [ ] nginx-app.yaml 使用 `sources`（复数）并包含 Git 仓库
-- [ ] Grafana 配置移除了 `existingSecret`
+- [ ] Grafana 配置**完全移除了 `admin` 部分**（不只是注释）
+- [ ] Grafana 配置只保留 `secret` 部分
 - [ ] 所有存储类配置正确（根据实际环境修改）
 - [ ] Git 仓库 URL 正确
 - [ ] 所有 values 文件已提交到 Git 仓库
