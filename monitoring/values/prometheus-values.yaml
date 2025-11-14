@@ -1,3 +1,17 @@
+# Prometheus Operator 配置
+# 确保 CRD 在 Operator 之前创建
+prometheusOperator:
+  # 确保 CRD 被创建（默认已启用）
+  createCustomResource: true
+  # 资源限制，确保 Operator 有足够资源启动
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
 prometheus:
   enabled: true
   prometheusSpec:

@@ -8,6 +8,10 @@ metadata:
     app.kubernetes.io/component: monitoring
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # 使用 sync waves 确保 CRD 在 Operator 之前创建
+    # Wave -1: CRD 最先创建
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   project: default
   sources:
@@ -17,6 +21,8 @@ spec:
       helm:
         valueFiles:
           - $values/monitoring/values/prometheus-values.yaml
+        # 确保 CRD 在安装时创建
+        skipCrds: false
     - repoURL: https://github.com/leonardsun899/monitoring-stack.git
       targetRevision: main
       ref: values
@@ -32,6 +38,8 @@ spec:
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ServerSideApply=true
+      # 确保 CRD 先安装
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:
