@@ -23,11 +23,8 @@ prometheus:
 
 grafana:
   enabled: true
-  admin:
-    # 移除 existingSecret，让 Helm chart 自动创建 secret
-    # existingSecret: grafana-admin-credentials
-    # userKey: admin-user
-    # passwordKey: admin-password
+  # 不配置 admin 部分，让 Helm chart 使用默认配置
+  # admin 配置会导致模板错误，使用 secret 配置即可
   secret:
     admin-user: admin
     admin-password: "admin"
