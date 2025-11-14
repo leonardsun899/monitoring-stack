@@ -1,3 +1,4 @@
+# Loki 配置
 loki:
   auth_enabled: false
   commonConfig:
@@ -12,30 +13,30 @@ loki:
     max_query_series: 500
 
 # 使用单实例模式，不需要对象存储
+# 重要：必须设置 deploymentMode，否则会报错
 deploymentMode: SingleBinary
-singleBinary:
-  replicas: 1
-  enabled: true
 
-# 禁用其他部署模式
+singleBinary:
+  enabled: true
+  replicas: 1
+
+# 禁用其他部署模式（必须显式禁用）
 simpleScalable:
   enabled: false
-  replicas: 0  # 必须设置为 0，否则会与 singleBinary 冲突
 read:
   enabled: false
-  replicas: 0
 write:
   enabled: false
-  replicas: 0
 backend:
   enabled: false
-  replicas: 0
 
+# 持久化存储
 persistence:
   enabled: true
   storageClassName: do-block-storage
   size: 50Gi
 
+# 资源限制
 resources:
   requests:
     cpu: 200m
@@ -44,23 +45,33 @@ resources:
     cpu: 1000m
     memory: 2Gi
 
+# Service 配置
 service:
   type: ClusterIP
   port: 3100
 
-# 禁用缓存组件（SingleBinary 模式不需要，且会导致 Pending 状态）
+# 禁用所有缓存组件（SingleBinary 模式不需要）
 chunksCache:
   enabled: false
 
 resultsCache:
   enabled: false
 
-# Gateway 可以保留（用于统一入口），但也可以禁用
-# 如果禁用，组件需要直接访问 loki Service
+# 禁用 Gateway（SingleBinary 模式直接使用 Service）
+# 组件应该直接访问 loki Service: http://loki.monitoring.svc:3100
 gateway:
-  enabled: true  # 保留 gateway，因为日志显示正在使用
+  enabled: false
 
-# 禁用 Canary（可选，用于测试）
+# 禁用 Canary（测试组件，非必需）
 canary:
   enabled: false
+
+# 禁用其他不必要的组件
+monitoring:
+  dashboards:
+    enabled: false
+  rules:
+    enabled: false
+  serviceMonitor:
+    enabled: false
 
