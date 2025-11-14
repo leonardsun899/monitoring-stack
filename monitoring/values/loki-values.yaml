@@ -1,5 +1,7 @@
 loki:
   auth_enabled: false
+  commonConfig:
+    replication_factor: 1
   storage:
     type: filesystem
   limits_config:
@@ -8,6 +10,11 @@ loki:
     ingestion_burst_size_mb: 32
     max_query_parallelism: 32
     max_query_series: 500
+
+# 使用单实例模式，不需要对象存储
+singleBinary:
+  replicas: 1
+  enabled: true
 
 persistence:
   enabled: true
