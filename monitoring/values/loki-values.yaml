@@ -16,14 +16,27 @@ loki:
 # 重要：必须设置 deploymentMode，否则会报错
 deploymentMode: SingleBinary
 
+# SingleBinary 配置
 singleBinary:
   enabled: true
   replicas: 1
 
-# 禁用其他部署模式（必须显式禁用，且 replicas 必须设置为 0）
+# 禁用 SimpleScalable 模式（必须显式禁用，且 replicas 必须设置为 0）
+# 注意：这些配置必须在 singleBinary 之后，确保优先级正确
 simpleScalable:
   enabled: false
-  replicas: 0  # 必须显式设置为 0，否则会与 singleBinary 冲突
+  replicas: 0
+  # 显式禁用所有 simpleScalable 的子组件
+  frontend:
+    replicas: 0
+  querier:
+    replicas: 0
+  distributor:
+    replicas: 0
+  ingester:
+    replicas: 0
+
+# 禁用其他部署模式
 read:
   enabled: false
   replicas: 0
