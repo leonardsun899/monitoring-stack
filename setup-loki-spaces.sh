@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 
 # 配置变量（可以根据需要修改）
 SPACE_NAME="loki-storage-$(date +%s)"  # 使用时间戳确保唯一性
-REGION="nyc3"  # 默认区域，可以根据需要修改
+REGION="sgp1"  # 默认区域：sgp1 (Singapore) - 最接近悉尼的区域
 KEY_NAME="loki-spaces-key"
 NAMESPACE="monitoring"
 SECRET_NAME="loki-spaces-credentials"
@@ -44,9 +44,17 @@ else
     SPACE_NAME="$USER_SPACE_NAME"
 fi
 
-read -p "请输入区域 (nyc3/sfo3/sgp1/ams3/fra1，默认 nyc3): " USER_REGION
+echo "DigitalOcean Spaces 可用区域："
+echo "  - sgp1 (Singapore) - 推荐，最接近悉尼"
+echo "  - nyc3 (New York 3)"
+echo "  - sfo3 (San Francisco 3)"
+echo "  - ams3 (Amsterdam 3)"
+echo "  - fra1 (Frankfurt 1)"
+echo ""
+read -p "请输入区域 (默认 sgp1，推荐用于悉尼集群): " USER_REGION
 if [ -z "$USER_REGION" ]; then
-    REGION="nyc3"
+    REGION="sgp1"
+    echo -e "${GREEN}✅ 使用默认区域: sgp1 (Singapore) - 最接近悉尼${NC}"
 else
     REGION="$USER_REGION"
 fi
@@ -220,8 +228,11 @@ case $REGION in
         ;;
     *)
         ENDPOINT="${REGION}.digitaloceanspaces.com"
+        echo -e "${YELLOW}⚠️  使用自定义区域端点: $ENDPOINT${NC}"
         ;;
 esac
+
+echo -e "${GREEN}✅ 区域端点: $ENDPOINT${NC}"
 
 # 更新 loki-values-default.yaml (使用默认配置)
 VALUES_FILE="monitoring/values/loki-values-default.yaml"

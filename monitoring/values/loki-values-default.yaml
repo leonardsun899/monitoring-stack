@@ -13,8 +13,8 @@ loki:
       chunks: loki-storage  # ⚠️ 将被脚本替换
       ruler: loki-storage   # ⚠️ 将被脚本替换
     s3:
-      endpoint: nyc3.digitaloceanspaces.com  # ⚠️ 将被脚本替换
-      region: nyc3  # ⚠️ 将被脚本替换
+      endpoint: sgp1.digitaloceanspaces.com  # ⚠️ 将被脚本替换 (默认: sgp1 for Sydney)
+      region: sgp1  # ⚠️ 将被脚本替换 (默认: sgp1 for Sydney)
       s3ForcePathStyle: true
       secretAccessKey:
         name: loki-spaces-credentials
