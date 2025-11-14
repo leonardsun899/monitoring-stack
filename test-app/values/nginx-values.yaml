@@ -1,5 +1,9 @@
 # Nginx 基础配置
 replicaCount: 2
+image:
+  registry: docker.io
+  repository: bitnami/nginx
+  tag: 1.29.3-debian-12-r0  # 使用与 chart 版本匹配的镜像标签
 service:
   type: LoadBalancer
   ports:
