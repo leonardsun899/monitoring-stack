@@ -31,7 +31,8 @@ kubectl get storageclass
 - GKE: `standard`, `premium-rwo`
 - 其他: 查看上述命令的输出
 
-**重要：** 
+**重要：**
+
 - 本指南默认使用 AWS EKS，所有配置文件中的 `storageClassName` 已设置为 `gp3`
 - 如果使用其他云平台，需要修改相应的 `storageClassName`
 - **Loki 默认配置需要 S3 存储**：如果使用 Loki 的默认 Helm Chart 配置（SimpleScalable 模式），需要提前配置 AWS S3。详见 Step 3.5.1 的说明
@@ -194,6 +195,7 @@ metrics:
 ```
 
 **说明：**
+
 - 尽量使用 Helm Chart 默认配置
 - 只覆盖必要的设置（LoadBalancer 服务类型和 Metrics Exporter）
 - 其他配置（如副本数、资源限制等）使用默认值
@@ -478,82 +480,205 @@ canary:
 
 **`monitoring/values/loki-values-s3.yaml`**（可选，如果使用 S3）
 
-```yaml
-# Loki 配置 - 使用默认 SimpleScalable 模式（需要 S3）
-# 尽量使用 Helm Chart 默认配置，只覆盖必要的 S3 设置
+详见文件 `monitoring/values/loki-values-s3.yaml`，该文件支持两种 S3 访问方式：
+- **IRSA**（推荐）：不需要配置 `accessKeyId` 和 `secretAccessKey`，AWS SDK 自动从 ServiceAccount 获取凭证
+- **IAM 用户访问密钥**：需要创建 Kubernetes Secret，并在配置中指定 Secret 名称
 
-loki:
-  auth_enabled: false
-  storage:
-    type: s3
-    bucketNames:
-      chunks: loki-storage  # 替换为你的 S3 存储桶名称
-      ruler: loki-storage    # 替换为你的 S3 存储桶名称
-    s3:
-      endpoint: s3.amazonaws.com  # AWS S3 端点
-      region: us-west-2            # 替换为你的 AWS 区域
-      s3ForcePathStyle: false
-      secretAccessKey:
-        name: loki-s3-credentials  # Kubernetes Secret 名称
-        key: AWS_SECRET_ACCESS_KEY
-      accessKeyId:
-        name: loki-s3-credentials  # Kubernetes Secret 名称
-        key: AWS_ACCESS_KEY_ID
-
-# 持久化存储（用于索引，不是日志数据）
-persistence:
-  enabled: true
-  storageClassName: gp3
-  size: 10Gi
-```
+完整配置示例见文件内容。
 
 **S3 配置说明（如果使用选项 B）**
 
-如果选择使用默认的 SimpleScalable 模式，需要提前配置 AWS S3：
+如果选择使用默认的 SimpleScalable 模式，需要提前配置 AWS S3。**推荐使用 IRSA（IAM Roles for Service Accounts）**，这是 AWS EKS 的最佳实践，不需要在 Kubernetes 中存储访问密钥。
 
-1. **创建 S3 存储桶**
-   ```bash
-   aws s3 mb s3://loki-storage --region us-west-2
-   ```
+#### 方案 1：使用 IRSA（推荐，更安全）
 
-2. **创建 IAM 用户和访问密钥**
-   - 在 AWS 控制台创建 IAM 用户
-   - 附加策略允许访问 S3 存储桶：
-     ```json
-     {
-       "Version": "2012-10-17",
-       "Statement": [
-         {
-           "Effect": "Allow",
-           "Action": [
-             "s3:PutObject",
-             "s3:GetObject",
-             "s3:DeleteObject",
-             "s3:ListBucket"
-           ],
-           "Resource": [
-             "arn:aws:s3:::loki-storage",
-             "arn:aws:s3:::loki-storage/*"
-           ]
-         }
-       ]
-     }
-     ```
-   - 创建访问密钥（Access Key ID 和 Secret Access Key）
+IRSA 允许 Kubernetes ServiceAccount 直接使用 IAM Role，无需存储访问密钥。
 
-3. **创建 Kubernetes Secret**
-   ```bash
-   kubectl create secret generic loki-s3-credentials \
-     --from-literal=AWS_ACCESS_KEY_ID="你的 Access Key ID" \
-     --from-literal=AWS_SECRET_ACCESS_KEY="你的 Secret Access Key" \
-     --namespace monitoring
-   ```
+**步骤 1：确保 EKS 集群已配置 OIDC 提供商**
 
-4. **使用 S3 配置部署**
-   - 修改 `monitoring/argocd/loki.yaml` 中的 `valueFiles` 为 `loki-values-s3.yaml`
-   - 或直接使用 `loki-values-s3.yaml` 的内容更新 `loki-values.yaml`
+```bash
+# 检查集群是否已有 OIDC 提供商
+aws eks describe-cluster --name <your-cluster-name> --query "cluster.identity.oidc.issuer" --output text
+
+# 如果没有，创建 OIDC 提供商
+eksctl utils associate-iam-oidc-provider --cluster <your-cluster-name> --approve
+```
+
+**步骤 2：创建 S3 存储桶**
+
+```bash
+aws s3 mb s3://loki-storage --region us-west-2
+```
+
+**步骤 3：创建 IAM 策略**
+
+创建 IAM 策略文件 `loki-s3-policy.json`：
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": ["arn:aws:s3:::loki-storage", "arn:aws:s3:::loki-storage/*"]
+    }
+  ]
+}
+```
+
+创建策略：
+
+```bash
+aws iam create-policy \
+  --policy-name LokiS3AccessPolicy \
+  --policy-document file://loki-s3-policy.json
+```
+
+记录策略 ARN（格式：`arn:aws:iam::<account-id>:policy/LokiS3AccessPolicy`）
+
+**步骤 4：创建 IAM Role 并关联策略**
+
+获取集群的 OIDC 提供商 URL：
+
+```bash
+OIDC_PROVIDER=$(aws eks describe-cluster --name <your-cluster-name> --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+```
+
+创建信任策略文件 `loki-trust-policy.json`：
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${OIDC_PROVIDER}:sub": "system:serviceaccount:monitoring:loki-s3-service-account",
+          "${OIDC_PROVIDER}:aud": "sts.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
+```
+
+创建 IAM Role：
+
+```bash
+aws iam create-role \
+  --role-name LokiS3AccessRole \
+  --assume-role-policy-document file://loki-trust-policy.json
+
+# 附加策略到角色
+aws iam attach-role-policy \
+  --role-name LokiS3AccessRole \
+  --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/LokiS3AccessPolicy
+```
+
+记录角色 ARN（格式：`arn:aws:iam::<account-id>:role/LokiS3AccessRole`）
+
+**步骤 5：创建 Kubernetes ServiceAccount**
+
+创建 `loki-serviceaccount.yaml`：
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loki-s3-service-account
+  namespace: monitoring
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/LokiS3AccessRole
+```
+
+应用配置：
+
+```bash
+kubectl create namespace monitoring  # 如果不存在
+kubectl apply -f loki-serviceaccount.yaml
+```
+
+**步骤 6：配置 Loki 使用 ServiceAccount**
+
+在 `monitoring/values/loki-values-s3.yaml` 中，取消注释并配置 ServiceAccount：
+
+```yaml
+serviceAccount:
+  create: false # 不自动创建 ServiceAccount
+  name: loki-s3-service-account # 使用已存在的 ServiceAccount（已配置 IRSA）
+```
+
+**步骤 7：部署 Loki**
+
+修改 `monitoring/argocd/loki.yaml` 中的 `valueFiles` 为 `loki-values-s3.yaml`，或直接使用 `loki-values-s3.yaml` 的内容更新 `loki-values.yaml`。
+
+#### 方案 2：使用 IAM 用户访问密钥（备选）
+
+如果无法使用 IRSA，可以使用传统的 IAM 用户访问密钥方式。
+
+**步骤 1：创建 S3 存储桶**
+
+```bash
+aws s3 mb s3://loki-storage --region us-west-2
+```
+
+**步骤 2：创建 IAM 用户和访问密钥**
+
+1. 在 AWS 控制台创建 IAM 用户（例如：`loki-s3-user`）
+2. 附加策略允许访问 S3 存储桶（使用方案 1 中的策略 JSON）
+3. 创建访问密钥（Access Key ID 和 Secret Access Key）
+
+**步骤 3：创建 Kubernetes Secret**
+
+```bash
+kubectl create secret generic loki-s3-credentials \
+  --from-literal=AWS_ACCESS_KEY_ID="你的 Access Key ID" \
+  --from-literal=AWS_SECRET_ACCESS_KEY="你的 Secret Access Key" \
+  --namespace monitoring
+```
+
+**步骤 4：配置 Loki 使用访问密钥**
+
+在 `monitoring/values/loki-values-s3.yaml` 中，取消注释并配置：
+
+```yaml
+s3:
+  secretAccessKey:
+    name: loki-s3-credentials
+    key: AWS_SECRET_ACCESS_KEY
+  accessKeyId:
+    name: loki-s3-credentials
+    key: AWS_ACCESS_KEY_ID
+```
+
+**步骤 5：部署 Loki**
+
+修改 `monitoring/argocd/loki.yaml` 中的 `valueFiles` 为 `loki-values-s3.yaml`。
+
+**两种方案对比：**
+
+| 特性            | IRSA（方案 1）                | IAM 用户（方案 2）         |
+| --------------- | ----------------------------- | -------------------------- |
+| **安全性**      | ✅ 更高（临时凭证，自动轮换） | ⚠️ 较低（长期凭证）        |
+| **配置复杂度**  | ⚠️ 较复杂（需要 OIDC 提供商） | ✅ 较简单                  |
+| **需要 Secret** | ❌ 不需要                     | ✅ 需要                    |
+| **凭证管理**    | ✅ 自动管理                   | ⚠️ 手动管理                |
+| **推荐场景**    | 生产环境                      | 测试环境或无法使用 IRSA 时 |
 
 **推荐方案：**
+
 - **测试环境**：使用选项 A（SingleBinary 模式，不需要 S3）
 - **生产环境**：使用选项 B（SimpleScalable 模式，需要 S3，更好的可扩展性）
 
@@ -572,6 +697,7 @@ config:
 ```
 
 **说明：**
+
 - Promtail Helm Chart 默认配置已经包含了 Kubernetes Pod 日志收集配置
 - 只需要配置 Loki 的连接地址即可
 - 其他配置（如资源限制、DaemonSet 等）使用默认值
@@ -592,7 +718,7 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: gp3  # AWS EKS 使用 gp3
+          storageClassName: gp3 # AWS EKS 使用 gp3
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
@@ -607,13 +733,13 @@ grafana:
   # 使用 secret 配置管理员账户（避免模板错误）
   secret:
     admin-user: admin
-    admin-password: "admin"  # 生产环境请使用强密码
+    admin-password: "admin" # 生产环境请使用强密码
   persistence:
     enabled: true
-    storageClassName: gp3  # AWS EKS 使用 gp3
+    storageClassName: gp3 # AWS EKS 使用 gp3
     size: 10Gi
   service:
-    type: LoadBalancer  # 测试环境使用 LoadBalancer
+    type: LoadBalancer # 测试环境使用 LoadBalancer
   # 配置数据源
   datasources:
     datasources.yaml:
@@ -628,7 +754,7 @@ grafana:
           type: loki
           access: proxy
           url: http://loki.monitoring.svc:3100
-          isDefault: false  # 只能有一个默认数据源
+          isDefault: false # 只能有一个默认数据源
   # 预装仪表板
   dashboards:
     default:
@@ -661,6 +787,7 @@ defaultRules:
 ```
 
 **说明：**
+
 - 大部分配置使用 Helm Chart 默认值
 - 只覆盖必要的设置（存储类、数据源、仪表板等）
 - `storageClassName` 已设置为 `gp3`（AWS EKS）

@@ -1,0 +1,45 @@
+# Loki 配置 - 使用默认 SimpleScalable 模式（需要 S3）
+# 尽量使用 Helm Chart 默认配置，只覆盖必要的 S3 设置
+# 
+# 支持两种 S3 访问方式：
+# 1. IRSA (IAM Roles for Service Accounts) - 推荐，不需要 Secret
+# 2. IAM 用户访问密钥 - 需要创建 Kubernetes Secret
+
+# 使用默认的 SimpleScalable 模式
+deploymentMode: SimpleScalable
+
+# Loki 存储配置 - AWS S3
+loki:
+  auth_enabled: false
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki-storage  # ⚠️ 替换为你的 S3 存储桶名称
+      ruler: loki-storage    # ⚠️ 替换为你的 S3 存储桶名称
+    s3:
+      endpoint: s3.amazonaws.com  # AWS S3 端点
+      region: us-west-2            # ⚠️ 替换为你的 AWS 区域
+      s3ForcePathStyle: false
+      # 如果使用 IRSA，不需要配置 accessKeyId 和 secretAccessKey
+      # AWS SDK 会自动从 Pod 的 ServiceAccount 获取临时凭证
+      # 
+      # 如果使用 IAM 用户访问密钥，取消下面的注释并配置：
+      # secretAccessKey:
+      #   name: loki-s3-credentials  # Kubernetes Secret 名称
+      #   key: AWS_SECRET_ACCESS_KEY
+      # accessKeyId:
+      #   name: loki-s3-credentials  # Kubernetes Secret 名称
+      #   key: AWS_ACCESS_KEY_ID
+
+# 持久化存储（用于索引，不是日志数据）
+persistence:
+  enabled: true
+  storageClassName: gp3
+  size: 10Gi
+
+# ServiceAccount 配置（如果使用 IRSA）
+# 取消下面的注释并配置 ServiceAccount 名称，该 ServiceAccount 需要关联 IAM Role
+# serviceAccount:
+#   create: false  # 不自动创建 ServiceAccount
+#   name: loki-s3-service-account  # 使用已存在的 ServiceAccount（已配置 IRSA）
+
