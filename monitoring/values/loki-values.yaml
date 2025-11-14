@@ -1,0 +1,28 @@
+loki:
+  auth_enabled: false
+  storage:
+    type: filesystem
+  limits_config:
+    retention_period: 720h
+    ingestion_rate_mb: 16
+    ingestion_burst_size_mb: 32
+    max_query_parallelism: 32
+    max_query_series: 500
+
+persistence:
+  enabled: true
+  storageClassName: do-block-storage
+  size: 50Gi
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+service:
+  type: ClusterIP
+  port: 3100
+

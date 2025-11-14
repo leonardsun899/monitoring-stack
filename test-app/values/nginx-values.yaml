@@ -1,0 +1,30 @@
+# Nginx 基础配置
+replicaCount: 2
+service:
+  type: LoadBalancer
+  ports:
+    http: 80
+
+# 启用 Prometheus Metrics Exporter
+metrics:
+  enabled: true
+  service:
+    type: ClusterIP
+    port: 9113
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    labels:
+      release: prometheus
+    interval: 30s
+    scrapeTimeout: 10s
+
+# 资源限制
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
