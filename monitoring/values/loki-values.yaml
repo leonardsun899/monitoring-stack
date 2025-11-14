@@ -48,16 +48,17 @@ service:
   type: ClusterIP
   port: 3100
 
-# 禁用缓存组件（SingleBinary 模式不需要）
+# 禁用缓存组件（SingleBinary 模式不需要，且会导致 Pending 状态）
 chunksCache:
   enabled: false
 
 resultsCache:
   enabled: false
 
-# 禁用 Gateway（SingleBinary 模式不需要）
+# Gateway 可以保留（用于统一入口），但也可以禁用
+# 如果禁用，组件需要直接访问 loki Service
 gateway:
-  enabled: false
+  enabled: true  # 保留 gateway，因为日志显示正在使用
 
 # 禁用 Canary（可选，用于测试）
 canary:
