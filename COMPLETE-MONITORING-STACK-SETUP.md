@@ -35,7 +35,8 @@ kubectl get storageclass
 
 - 本指南默认使用 AWS EKS，所有配置文件中的 `storageClassName` 已设置为 `gp3`
 - 如果使用其他云平台，需要修改相应的 `storageClassName`
-- **Loki 默认配置需要 S3 存储**：如果使用 Loki 的默认 Helm Chart 配置（SimpleScalable 模式），需要提前配置 AWS S3。详见 Step 3.5.1 的说明
+- **Loki 默认配置需要 S3 存储**：如果使用 Loki 的默认 Helm Chart 配置（SimpleScalable 模式），需要提前配置 AWS S3
+- **推荐使用 IRSA**：在 AWS EKS 上，推荐使用 IAM Roles for Service Accounts (IRSA) 来访问 S3，无需在 Kubernetes 中存储访问密钥，更安全且符合 AWS 最佳实践。详见 Step 3.5.1 的说明
 
 ## 🚀 Step 1: 安装 ArgoCD
 
@@ -481,6 +482,7 @@ canary:
 **`monitoring/values/loki-values-s3.yaml`**（可选，如果使用 S3）
 
 详见文件 `monitoring/values/loki-values-s3.yaml`，该文件支持两种 S3 访问方式：
+
 - **IRSA**（推荐）：不需要配置 `accessKeyId` 和 `secretAccessKey`，AWS SDK 自动从 ServiceAccount 获取凭证
 - **IAM 用户访问密钥**：需要创建 Kubernetes Secret，并在配置中指定 Secret 名称
 
