@@ -20,12 +20,16 @@ singleBinary:
 # 禁用其他部署模式
 simpleScalable:
   enabled: false
+  replicas: 0  # 必须设置为 0，否则会与 singleBinary 冲突
 read:
   enabled: false
+  replicas: 0
 write:
   enabled: false
+  replicas: 0
 backend:
   enabled: false
+  replicas: 0
 
 persistence:
   enabled: true
