@@ -563,6 +563,7 @@ grafana:
           type: loki
           access: proxy
           url: http://loki.monitoring.svc:3100
+          isDefault: false  # 重要：只能有一个数据源是默认的
           editable: true
   dashboardProviders:
     dashboardproviders.yaml:
@@ -759,10 +760,12 @@ kubectl describe application prometheus -n argocd
 ### Loki 部署失败
 
 如果遇到以下错误：
+
 - "Cannot run scalable targets without an object storage backend"
 - "You have more than zero replicas configured for both the single binary and simple scalable targets"
 
 解决方案：
+
 1. 检查 `loki-values.yaml` 中是否设置了 `deploymentMode: SingleBinary`
 2. 检查是否启用了 `singleBinary.enabled: true`
 3. 检查是否禁用了其他模式（simpleScalable, read, write, backend）
@@ -779,14 +782,31 @@ kubectl describe application prometheus -n argocd
 ### Grafana Pod 无法启动
 
 如果遇到以下错误：
+
 - "secret not found"
 - "nil pointer evaluating interface {}.existingSecret"
 
 解决方案：
+
 1. 检查 `prometheus-values.yaml` 中是否**完全移除了 `admin` 配置部分**（不只是注释）
 2. 确保只保留 `secret` 配置部分
 3. 即使 `admin:` 配置是空的或注释掉的，也会导致模板错误
-4. 参考 [DEBUG.md](./DEBUG.md) 中的问题 3
+4. 如果 Secret 仍未创建，可以手动创建（参考 [DEBUG.md](./DEBUG.md) 中的问题 3）
+5. 参考 [DEBUG.md](./DEBUG.md) 中的问题 3
+
+### Grafana 数据源配置错误
+
+如果遇到以下错误：
+
+- "Only one datasource per organization can be marked as default"
+- Grafana Pod 处于 CrashLoopBackOff 状态
+
+解决方案：
+
+1. 检查 `prometheus-values.yaml` 中的数据源配置
+2. 确保只有一个数据源设置了 `isDefault: true`（通常是 Prometheus）
+3. 其他数据源（如 Loki）必须设置 `isDefault: false`
+4. 参考 [DEBUG.md](./DEBUG.md) 中的问题 4
 
 ### Prometheus 无法抓取 Metrics
 

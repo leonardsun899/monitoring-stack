@@ -225,6 +225,80 @@ kubectl get secret -n monitoring | grep grafana
 kubectl logs -n monitoring -l app.kubernetes.io/name=grafana --tail=50
 ```
 
+### 临时解决方案：手动创建 Secret
+
+如果移除了 `admin` 配置后，Helm Chart 仍然没有自动创建 Secret，可以手动创建：
+
+```bash
+kubectl create secret generic grafana-admin-credentials -n monitoring \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password=admin
+
+# 然后删除 Pod 让它重新创建
+kubectl delete pod -n monitoring -l app.kubernetes.io/name=grafana
+```
+
+**注意**: 这个 Secret 名称 `grafana-admin-credentials` 是 Grafana Helm Chart 的默认名称。如果配置了不同的名称，需要相应修改。
+
+---
+
+## 🔍 问题 4: Grafana - 数据源配置错误
+
+### 错误信息
+
+```bash
+kubectl logs -n monitoring prometheus-grafana-xxx -c grafana
+
+Error: ✗ Datasource provisioning error: datasource.yaml config is invalid. 
+Only one datasource per organization can be marked as default
+```
+
+### 原因分析
+
+在 `prometheus-values.yaml` 中配置了多个数据源（Prometheus 和 Loki），如果都设置了 `isDefault: true`，Grafana 会报错，因为每个组织只能有一个默认数据源。
+
+### 解决方案
+
+确保只有一个数据源设置为 `isDefault: true`，其他数据源设置为 `isDefault: false` 或不设置（默认为 false）：
+
+```yaml
+grafana:
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus-operated.monitoring.svc:9090
+          isDefault: true  # 只有 Prometheus 设置为默认
+          editable: true
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki.monitoring.svc:3100
+          isDefault: false  # 重要：必须设置为 false
+          editable: true
+```
+
+**关键点：**
+- 只能有一个数据源的 `isDefault: true`
+- 其他数据源必须显式设置 `isDefault: false` 或不设置该字段
+- 通常 Prometheus 作为默认数据源，因为大多数查询都是 PromQL
+
+### 验证
+
+```bash
+# 检查 Grafana Pod 状态
+kubectl get pods -n monitoring -l app.kubernetes.io/name=grafana
+
+# 查看 Grafana 日志，确认没有数据源错误
+kubectl logs -n monitoring -l app.kubernetes.io/name=grafana -c grafana --tail=50 | grep -i datasource
+
+# 如果 Pod 在 CrashLoopBackOff，查看完整日志
+kubectl logs -n monitoring -l app.kubernetes.io/name=grafana -c grafana --tail=100
+```
+
 ---
 
 ## 🔧 通用排查步骤
@@ -295,6 +369,8 @@ argocd app sync <app-name>
 - [ ] nginx-app.yaml 使用 `sources`（复数）并包含 Git 仓库
 - [ ] Grafana 配置**完全移除了 `admin` 部分**（不只是注释）
 - [ ] Grafana 配置只保留 `secret` 部分
+- [ ] Grafana 数据源配置中，只有一个数据源设置了 `isDefault: true`
+- [ ] 其他数据源（如 Loki）的 `isDefault` 设置为 `false`
 - [ ] 所有存储类配置正确（根据实际环境修改）
 - [ ] Git 仓库 URL 正确
 - [ ] 所有 values 文件已提交到 Git 仓库
