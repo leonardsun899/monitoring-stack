@@ -48,3 +48,18 @@ service:
   type: ClusterIP
   port: 3100
 
+# 禁用缓存组件（SingleBinary 模式不需要）
+chunksCache:
+  enabled: false
+
+resultsCache:
+  enabled: false
+
+# 禁用 Gateway（SingleBinary 模式不需要）
+gateway:
+  enabled: false
+
+# 禁用 Canary（可选，用于测试）
+canary:
+  enabled: false
+
