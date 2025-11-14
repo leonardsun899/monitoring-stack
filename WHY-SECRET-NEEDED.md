@@ -261,6 +261,244 @@ Loki 进程启动
 
 ---
 
+## 🔄 AWS vs DigitalOcean: IAM Role 机制对比
+
+### 问题：DigitalOcean 有类似 AWS IAM Role 的机制吗？
+
+**简短回答**：**目前没有**。DigitalOcean 不提供类似 AWS IAM Roles for Service Accounts (IRSA) 的机制。
+
+---
+
+### AWS IAM Role 机制（IRSA）
+
+#### 什么是 IRSA？
+
+**IAM Roles for Service Accounts (IRSA)** 是 AWS 提供的一种机制，允许 Kubernetes Service Account 直接使用 IAM Role，**无需存储 Access Key 和 Secret Key**。
+
+#### AWS IRSA 工作流程
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 1. 创建 IAM Role                                         │
+│    - 定义访问 S3 的权限策略                               │
+│    - 不需要 Access Key/Secret Key                        │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+                  │ 关联到 Service Account
+                  ↓
+┌─────────────────────────────────────────────────────────┐
+│ 2. 配置 Kubernetes Service Account                      │
+│    - 添加注解: eks.amazonaws.com/role-arn               │
+│    - 不需要 Secret                                       │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+                  │ Pod 使用 Service Account
+                  ↓
+┌─────────────────────────────────────────────────────────┐
+│ 3. Pod 自动获取临时凭证                                  │
+│    - AWS SDK 自动从 STS 获取临时凭证                     │
+│    - 凭证自动轮换（更安全）                               │
+│    - 不需要手动管理 Secret                                │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### AWS IRSA 配置示例
+
+```yaml
+# Service Account 配置
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loki-service-account
+  namespace: monitoring
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/loki-s3-role
+    # ✅ 不需要 Access Key/Secret Key
+    # ✅ 不需要 Kubernetes Secret
+```
+
+```yaml
+# Pod 配置
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: loki-service-account
+  containers:
+    - name: loki
+      # ✅ AWS SDK 自动从 IAM Role 获取凭证
+      # ✅ 不需要环境变量
+      # ✅ 不需要 Secret 挂载
+```
+
+#### AWS IRSA 的优势
+
+✅ **无需存储凭证**
+- 不需要 Access Key/Secret Key
+- 不需要 Kubernetes Secret
+- 凭证自动管理
+
+✅ **更安全**
+- 临时凭证（自动过期）
+- 自动轮换
+- 最小权限原则
+
+✅ **更简单**
+- 配置更少
+- 不需要手动创建 Secret
+- 不需要更新凭证
+
+---
+
+### DigitalOcean 的现状
+
+#### 当前机制
+
+DigitalOcean **目前不提供**类似 AWS IRSA 的机制：
+
+❌ **没有集群级别的身份**
+- Kubernetes 集群没有"身份"
+- 无法自动关联到 DigitalOcean 资源
+
+❌ **没有 Service Account 集成**
+- Service Account 无法直接使用 DigitalOcean API
+- 需要手动创建和管理凭证
+
+❌ **必须使用 Access Key/Secret Key**
+- 必须手动创建 Spaces 访问密钥
+- 必须存储在 Kubernetes Secret 中
+- 需要手动轮换凭证
+
+#### DigitalOcean 当前工作流程
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 1. 手动创建 Spaces 访问密钥                               │
+│    - 在 DigitalOcean 控制面板创建                        │
+│    - 获取 Access Key 和 Secret Key                      │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+                  │ 手动创建 Secret
+                  ↓
+┌─────────────────────────────────────────────────────────┐
+│ 2. 手动创建 Kubernetes Secret                           │
+│    - kubectl create secret                              │
+│    - 存储 Access Key 和 Secret Key                     │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+                  │ Pod 从 Secret 读取
+                  ↓
+┌─────────────────────────────────────────────────────────┐
+│ 3. Pod 使用 Secret 中的凭证                              │
+│    - 从 Secret 读取凭证                                  │
+│    - 使用凭证访问 Spaces                                 │
+│    - 需要手动管理凭证轮换                                │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### DigitalOcean 的限制
+
+| 特性 | AWS (IRSA) | DigitalOcean |
+|------|-----------|--------------|
+| **集群身份** | ✅ 支持 | ❌ 不支持 |
+| **Service Account 集成** | ✅ 支持 | ❌ 不支持 |
+| **自动凭证管理** | ✅ 支持 | ❌ 不支持 |
+| **临时凭证** | ✅ 支持 | ❌ 不支持 |
+| **凭证轮换** | ✅ 自动 | ❌ 手动 |
+| **需要 Secret** | ❌ 不需要 | ✅ 必须 |
+
+---
+
+### 为什么 DigitalOcean 需要 Secret？
+
+因为 DigitalOcean **没有**类似 AWS IRSA 的机制，所以：
+
+1. **必须手动创建访问密钥**
+   - 在 DigitalOcean 控制面板创建
+   - 获取 Access Key 和 Secret Key
+
+2. **必须存储在 Kubernetes Secret 中**
+   - 没有其他方式让 Pod 获取凭证
+   - Secret 是唯一的安全存储方式
+
+3. **需要手动管理凭证**
+   - 定期轮换凭证
+   - 更新 Secret
+   - 重启 Pod
+
+---
+
+### 未来可能的改进
+
+#### DigitalOcean 的 RBAC 增强（2024年8月）
+
+DigitalOcean 在 2024年8月 宣布了**增强的基于角色的访问控制（RBAC）**功能：
+
+- ✅ 提供预定义角色
+- ✅ 简化用户访问管理
+- ⚠️ **但主要用于管理用户对 DigitalOcean 资源的访问权限**
+- ⚠️ **不是用于 Kubernetes 集群内的 Service Account 自动访问 Spaces**
+
+#### 可能的未来方向
+
+虽然目前没有官方支持，但未来可能的方向包括：
+
+1. **集群身份集成**
+   - Kubernetes 集群自动关联到 DigitalOcean 账户
+   - Service Account 可以继承集群权限
+
+2. **Service Account 注解支持**
+   - 类似 AWS IRSA 的注解机制
+   - 自动获取临时凭证
+
+3. **Workload Identity**
+   - 类似 Google Cloud 的 Workload Identity
+   - Service Account 直接使用 DigitalOcean API
+
+---
+
+### 对比总结
+
+| 方面 | AWS (IRSA) | DigitalOcean (当前) |
+|------|-----------|-------------------|
+| **凭证管理** | 自动 | 手动 |
+| **凭证类型** | 临时凭证 | 长期凭证 |
+| **凭证轮换** | 自动 | 手动 |
+| **配置复杂度** | 简单 | 复杂 |
+| **安全性** | 更高 | 较低 |
+| **需要 Secret** | ❌ | ✅ |
+
+---
+
+### 实际影响
+
+#### 对于你的项目
+
+由于 DigitalOcean 不支持类似 AWS IRSA 的机制，你必须：
+
+1. ✅ **手动创建 Spaces 访问密钥**
+2. ✅ **手动创建 Kubernetes Secret**
+3. ✅ **定期轮换凭证**（安全最佳实践）
+4. ✅ **更新 Secret 和重启 Pod**（轮换时）
+
+#### 安全建议
+
+虽然需要手动管理，但你可以：
+
+1. **定期轮换凭证**
+   - 每 90 天轮换一次
+   - 创建新密钥后更新 Secret
+   - 删除旧密钥
+
+2. **使用最小权限原则**
+   - 只授予必要的 Spaces 访问权限
+   - 不要使用全局管理员密钥
+
+3. **监控访问**
+   - 定期检查 Spaces 访问日志
+   - 发现异常及时处理
+
+---
+
 ## 🎯 总结
 
 ### 为什么需要 Secret？
