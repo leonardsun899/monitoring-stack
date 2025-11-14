@@ -2,19 +2,21 @@
 
 ## 🎯 目标
 
-在空的 EKS 集群中依次安装：
+从零开始创建完整的监控栈，包括：
 
-1. ArgoCD
-2. 测试应用（Nginx + Prometheus Exporter）
-3. 监控栈（Prometheus + Grafana + Loki + Promtail）
-4. 配置 Metrics 收集和 Grafana 报表
+1. 使用 Terraform 创建 AWS EKS 集群、S3 存储桶和 IRSA 配置
+2. 安装 ArgoCD
+3. 部署测试应用（Nginx + Prometheus Exporter）
+4. 部署监控栈（Prometheus + Grafana + Loki + Promtail）
+5. 配置 Metrics 收集和 Grafana 报表
 
 ## 📋 前置条件
 
-- Kubernetes 集群（EKS、GKE、DigitalOcean、或其他）
-- `kubectl` 已配置并可以访问集群
+- AWS 账户和 AWS CLI 已配置
+- Terraform >= 1.0 已安装
+- `kubectl` 已安装
 - Git 仓库（用于存储配置）
-- 了解集群的存储类（StorageClass）名称
+- 足够的 AWS 权限（创建 EKS、VPC、S3、IAM 资源）
 
 ### 检查存储类
 
@@ -496,6 +498,23 @@ canary:
 
 IRSA 允许 Kubernetes ServiceAccount 直接使用 IAM Role，无需存储访问密钥。
 
+**如果使用 Terraform（推荐）：**
+
+Terraform 已经自动完成了所有 IRSA 配置：
+- ✅ 创建了 S3 存储桶
+- ✅ 创建了 IAM 策略和角色
+- ✅ 创建了 Kubernetes ServiceAccount（已配置 IRSA 注解）
+- ✅ 创建了 `monitoring` Namespace
+
+你只需要：
+1. 运行 `./terraform/update-loki-values.sh` 更新 Loki values 文件（已在 Step 0.6 完成）
+2. 确保 `monitoring/values/loki-values-s3.yaml` 中的 `serviceAccount.name` 设置为 `loki-s3-service-account`
+3. 修改 `monitoring/argocd/loki.yaml` 中的 `valueFiles` 为 `loki-values-s3.yaml`
+
+**如果手动配置（不使用 Terraform）：**
+
+如果你选择不使用 Terraform，可以按照以下步骤手动配置：
+
 **步骤 1：确保 EKS 集群已配置 OIDC 提供商**
 
 ```bash
@@ -506,125 +525,7 @@ aws eks describe-cluster --name <your-cluster-name> --query "cluster.identity.oi
 eksctl utils associate-iam-oidc-provider --cluster <your-cluster-name> --approve
 ```
 
-**步骤 2：创建 S3 存储桶**
-
-```bash
-aws s3 mb s3://loki-storage --region us-west-2
-```
-
-**步骤 3：创建 IAM 策略**
-
-创建 IAM 策略文件 `loki-s3-policy.json`：
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:DeleteObject",
-        "s3:ListBucket"
-      ],
-      "Resource": ["arn:aws:s3:::loki-storage", "arn:aws:s3:::loki-storage/*"]
-    }
-  ]
-}
-```
-
-创建策略：
-
-```bash
-aws iam create-policy \
-  --policy-name LokiS3AccessPolicy \
-  --policy-document file://loki-s3-policy.json
-```
-
-记录策略 ARN（格式：`arn:aws:iam::<account-id>:policy/LokiS3AccessPolicy`）
-
-**步骤 4：创建 IAM Role 并关联策略**
-
-获取集群的 OIDC 提供商 URL：
-
-```bash
-OIDC_PROVIDER=$(aws eks describe-cluster --name <your-cluster-name> --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-```
-
-创建信任策略文件 `loki-trust-policy.json`：
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "${OIDC_PROVIDER}:sub": "system:serviceaccount:monitoring:loki-s3-service-account",
-          "${OIDC_PROVIDER}:aud": "sts.amazonaws.com"
-        }
-      }
-    }
-  ]
-}
-```
-
-创建 IAM Role：
-
-```bash
-aws iam create-role \
-  --role-name LokiS3AccessRole \
-  --assume-role-policy-document file://loki-trust-policy.json
-
-# 附加策略到角色
-aws iam attach-role-policy \
-  --role-name LokiS3AccessRole \
-  --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/LokiS3AccessPolicy
-```
-
-记录角色 ARN（格式：`arn:aws:iam::<account-id>:role/LokiS3AccessRole`）
-
-**步骤 5：创建 Kubernetes ServiceAccount**
-
-创建 `loki-serviceaccount.yaml`：
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: loki-s3-service-account
-  namespace: monitoring
-  annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/LokiS3AccessRole
-```
-
-应用配置：
-
-```bash
-kubectl create namespace monitoring  # 如果不存在
-kubectl apply -f loki-serviceaccount.yaml
-```
-
-**步骤 6：配置 Loki 使用 ServiceAccount**
-
-在 `monitoring/values/loki-values-s3.yaml` 中，取消注释并配置 ServiceAccount：
-
-```yaml
-serviceAccount:
-  create: false # 不自动创建 ServiceAccount
-  name: loki-s3-service-account # 使用已存在的 ServiceAccount（已配置 IRSA）
-```
-
-**步骤 7：部署 Loki**
-
-修改 `monitoring/argocd/loki.yaml` 中的 `valueFiles` 为 `loki-values-s3.yaml`，或直接使用 `loki-values-s3.yaml` 的内容更新 `loki-values.yaml`。
+**步骤 2-7：** 按照原始文档中的步骤手动创建 S3、IAM 和 ServiceAccount（详见 Terraform README 或原始文档）
 
 #### 方案 2：使用 IAM 用户访问密钥（备选）
 
@@ -794,12 +695,49 @@ defaultRules:
 - 只覆盖必要的设置（存储类、数据源、仪表板等）
 - `storageClassName` 已设置为 `gp3`（AWS EKS）
 
-### 3.6 部署监控栈（按顺序）
+### 3.6 配置 Loki 使用 S3（如果使用 Terraform）
+
+如果使用 Terraform 创建了集群，需要确保 Loki Application 使用 S3 配置：
+
+**修改 `monitoring/argocd/loki.yaml`：**
+
+```yaml
+spec:
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: loki
+      targetRevision: 6.0.0
+      helm:
+        valueFiles:
+          - $values/monitoring/values/loki-values-s3.yaml  # 使用 S3 配置
+    - repoURL: https://github.com/leonardsun899/monitoring-stack.git
+      targetRevision: main
+      ref: values
+```
+
+**验证配置：**
 
 ```bash
-# 1. 部署 Loki
+# 检查 loki-values-s3.yaml 是否已更新
+cat monitoring/values/loki-values-s3.yaml | grep -E "(bucketNames|region|serviceAccount)"
+
+# 应该看到：
+# chunks: <your-bucket-name>
+# region: <your-aws-region>
+# name: loki-s3-service-account
+```
+
+### 3.7 部署监控栈（按顺序）
+
+```bash
+# 1. 部署 Loki（使用 S3 配置）
 kubectl apply -f monitoring/argocd/loki.yaml
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=loki -n monitoring --timeout=300s
+
+# 等待 Loki 就绪（可能需要几分钟）
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=loki -n monitoring --timeout=600s
+
+# 检查 Loki Pod 状态
+kubectl get pods -n monitoring -l app.kubernetes.io/name=loki
 
 # 2. 部署 Promtail
 kubectl apply -f monitoring/argocd/promtail.yaml
@@ -811,6 +749,8 @@ kubectl apply -f monitoring/argocd/prometheus.yaml
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=prometheus -n monitoring --timeout=300s
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n monitoring --timeout=300s
 ```
+
+**注意**：如果 Loki 使用 S3 配置，首次部署可能需要更长时间，因为需要初始化 S3 存储。
 
 ---
 
