@@ -55,13 +55,56 @@ kubectl wait --for=condition=available --timeout=300s deployment/argocd-applicat
 ```bash
 # 获取初始 admin 密码
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
+```
 
+### 1.3 配置 ArgoCD Server 为 LoadBalancer（可选）
+
+默认情况下，ArgoCD Server 使用 ClusterIP 类型，只能通过 port-forward 访问。如果需要外部访问，可以将其改为 LoadBalancer：
+
+**方式 1: 使用配置文件（推荐，持久化）**
+
+```bash
+# 应用 Service 配置
+kubectl apply -f argocd/argocd-server-service.yaml
+
+# 等待 LoadBalancer 分配 IP
+kubectl get svc -n argocd argocd-server -w
+
+# 获取 LoadBalancer 地址
+kubectl get svc -n argocd argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}' && echo
+```
+
+**方式 2: 使用 kubectl patch（临时）**
+
+```bash
+# 临时修改为 LoadBalancer
+kubectl patch svc argocd-server -n argocd -p '{"spec":{"type":"LoadBalancer"}}'
+```
+
+**注意**: 使用配置文件的方式更好，因为配置保存在 Git 仓库中，可以版本控制和重复使用。
+
+### 1.4 访问 ArgoCD UI
+
+**方式 1: 使用 LoadBalancer（如果已配置）**
+
+```bash
+# 获取 LoadBalancer 地址
+kubectl get svc -n argocd argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}' && echo
+
+# 在浏览器中访问
+# HTTP: http://<loadbalancer-ip>
+# HTTPS: https://<loadbalancer-ip>
+```
+
+**方式 2: 使用 port-forward（默认方式）**
+
+```bash
 # 使用 port-forward 访问 ArgoCD UI
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 # 访问 https://localhost:8080 (用户名: admin)
 ```
 
-### 1.3 配置 ArgoCD CLI（可选）
+### 1.5 配置 ArgoCD CLI（可选）
 
 ```bash
 # 安装 ArgoCD CLI
@@ -563,7 +606,7 @@ grafana:
           type: loki
           access: proxy
           url: http://loki.monitoring.svc:3100
-          isDefault: false  # 重要：只能有一个数据源是默认的
+          isDefault: false # 重要：只能有一个数据源是默认的
           editable: true
   dashboardProviders:
     dashboardproviders.yaml:
@@ -841,19 +884,25 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 # 2. 获取 ArgoCD 密码
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
 
-# 3. 访问 ArgoCD
+# 3. 配置 ArgoCD LoadBalancer（可选，用于外部访问）
+kubectl apply -f argocd/argocd-server-service.yaml
+
+# 4. 访问 ArgoCD
+# 方式 1: 使用 LoadBalancer
+kubectl get svc -n argocd argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}' && echo
+# 方式 2: 使用 port-forward
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 
-# 4. 部署测试应用
+# 5. 部署测试应用
 kubectl apply -f test-app/argocd/nginx-app.yaml
 
-# 5. 部署监控栈（按顺序）
+# 6. 部署监控栈（按顺序）
 kubectl apply -f monitoring/argocd/loki.yaml
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=loki -n monitoring --timeout=300s
 kubectl apply -f monitoring/argocd/promtail.yaml
 kubectl apply -f monitoring/argocd/prometheus.yaml
 
-# 6. 访问 Grafana
+# 7. 访问 Grafana
 kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 # http://localhost:3000 (admin/admin)
 ```

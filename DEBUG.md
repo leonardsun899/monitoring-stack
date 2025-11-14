@@ -301,6 +301,78 @@ kubectl logs -n monitoring -l app.kubernetes.io/name=grafana -c grafana --tail=1
 
 ---
 
+## 🔍 问题 5: ArgoCD Server 无法外部访问
+
+### 问题描述
+
+默认情况下，ArgoCD Server 使用 ClusterIP 类型，只能通过 `kubectl port-forward` 在本地访问。如果需要从外部网络访问，需要将其改为 LoadBalancer 类型。
+
+### 解决方案
+
+**方式 1: 使用配置文件（推荐，持久化）**
+
+```bash
+# 应用 Service 配置
+kubectl apply -f argocd/argocd-server-service.yaml
+
+# 等待 LoadBalancer 分配 IP
+kubectl get svc -n argocd argocd-server -w
+```
+
+**方式 2: 使用 kubectl patch（临时）**
+
+```bash
+# 临时修改为 LoadBalancer
+kubectl patch svc argocd-server -n argocd -p '{"spec":{"type":"LoadBalancer"}}'
+```
+
+**注意**: 
+- 使用配置文件的方式更好，因为配置保存在 Git 仓库中，可以版本控制
+- 使用 patch 的方式在 ArgoCD 重新同步时可能会被覆盖
+
+### 获取 LoadBalancer 地址
+
+```bash
+# 获取 LoadBalancer IP 或 Hostname
+kubectl get svc -n argocd argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}' && echo
+# 或
+kubectl get svc -n argocd argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' && echo
+```
+
+### 访问 ArgoCD UI
+
+1. 使用 LoadBalancer 地址访问：
+   - HTTP: `http://<loadbalancer-ip-or-hostname>`
+   - HTTPS: `https://<loadbalancer-ip-or-hostname>`
+
+2. 登录信息：
+   - 用户名: `admin`
+   - 密码: 运行以下命令获取
+     ```bash
+     kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
+     ```
+
+### 安全建议
+
+⚠️ **生产环境建议**:
+- 使用 Ingress + TLS 证书而不是直接暴露 LoadBalancer
+- 配置 OIDC/SSO 认证
+- 使用 NetworkPolicy 限制访问
+- 考虑使用 ClusterIP + Ingress Controller（如 ALB、NGINX Ingress）
+
+### 验证
+
+```bash
+# 检查 Service 类型
+kubectl get svc -n argocd argocd-server
+
+# 应该显示 TYPE 为 LoadBalancer，EXTERNAL-IP 有值
+# NAME            TYPE           CLUSTER-IP     EXTERNAL-IP     PORT(S)
+# argocd-server   LoadBalancer   10.109.10.68   170.64.245.57   80:31797/TCP,443:32213/TCP
+```
+
+---
+
 ## 🔧 通用排查步骤
 
 ### 1. 检查 ArgoCD Application 状态
@@ -371,6 +443,7 @@ argocd app sync <app-name>
 - [ ] Grafana 配置只保留 `secret` 部分
 - [ ] Grafana 数据源配置中，只有一个数据源设置了 `isDefault: true`
 - [ ] 其他数据源（如 Loki）的 `isDefault` 设置为 `false`
+- [ ] ArgoCD Server Service 已配置为 LoadBalancer（如果需要外部访问）
 - [ ] 所有存储类配置正确（根据实际环境修改）
 - [ ] Git 仓库 URL 正确
 - [ ] 所有 values 文件已提交到 Git 仓库
@@ -390,12 +463,19 @@ kubectl apply -f monitoring/argocd/loki.yaml
 kubectl apply -f monitoring/argocd/prometheus.yaml
 kubectl apply -f test-app/argocd/nginx-app.yaml
 
-# 3. 等待同步完成
+# 3. 配置 ArgoCD LoadBalancer（如果需要外部访问）
+kubectl apply -f argocd/argocd-server-service.yaml
+
+# 4. 等待同步完成
 kubectl get application -n argocd -w
 
-# 4. 检查 Pod 状态
+# 5. 检查 Pod 状态
 kubectl get pods -n monitoring
 kubectl get pods -n test-app
+
+# 6. 检查 Service 状态
+kubectl get svc -n argocd argocd-server
+kubectl get svc -n monitoring prometheus-grafana
 ```
 
 ---
