@@ -10,9 +10,26 @@
 
 ## 📋 前置条件
 
-- 空的 EKS 集群
+- Kubernetes 集群（EKS、GKE、DigitalOcean、或其他）
 - `kubectl` 已配置并可以访问集群
 - Git 仓库（用于存储配置）
+- 了解集群的存储类（StorageClass）名称
+
+### 检查存储类
+
+在开始之前，请检查集群的存储类：
+
+```bash
+kubectl get storageclass
+```
+
+常见存储类名称：
+- AWS EKS: `gp3`, `gp2`
+- DigitalOcean: `do-block-storage`
+- GKE: `standard`, `premium-rwo`
+- 其他: 查看上述命令的输出
+
+**重要：** 在部署前，需要将所有配置文件中的 `storageClassName` 替换为实际环境的存储类名称。
 
 ## 🚀 Step 1: 安装 ArgoCD
 
@@ -78,17 +95,16 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-  source:
-    repoURL: https://charts.bitnami.com/bitnami
-    chart: nginx
-    targetRevision: 15.0.0
-    helm:
-      valueFiles:
-        - $values/test-app/values/nginx-values.yaml
-    # 如果使用 Git 仓库存储 values
-    # - repoURL: https://your-git-repo.git
-    #   targetRevision: main
-    #   ref: values
+  sources:  # 注意：使用 sources（复数）以支持多个仓库源
+    - repoURL: https://charts.bitnami.com/bitnami
+      chart: nginx
+      targetRevision: 15.0.0
+      helm:
+        valueFiles:
+          - $values/test-app/values/nginx-values.yaml
+    - repoURL: https://github.com/leonardsun899/monitoring-stack.git  # 替换为你的 Git 仓库地址
+      targetRevision: main
+      ref: values  # 标识这个 source 用于提供 values 文件
   destination:
     server: https://kubernetes.default.svc
     namespace: test-app
@@ -99,6 +115,12 @@ spec:
     syncOptions:
       - CreateNamespace=true
 ```
+
+**注意：** 
+- 必须使用 `sources`（复数）而不是 `source`，因为需要同时引用 Helm Chart 仓库和 Git 仓库
+- 第一个 source 是 Helm Chart 仓库
+- 第二个 source 是 Git 仓库，用于提供 values 文件
+- `ref: values` 告诉 ArgoCD 这个 source 用于 values 文件
 
 ### 2.3 创建 Values 文件（包含 Metrics Exporter）
 
@@ -229,7 +251,7 @@ spec:
       helm:
         valueFiles:
           - $values/monitoring/values/loki-values.yaml
-    - repoURL: https://your-git-repo.git
+    - repoURL: https://github.com/leonardsun899/monitoring-stack.git  # 替换为你的 Git 仓库地址
       targetRevision: main
       ref: values
   destination:
@@ -277,7 +299,7 @@ spec:
       helm:
         valueFiles:
           - $values/monitoring/values/promtail-values.yaml
-    - repoURL: https://your-git-repo.git
+    - repoURL: https://github.com/leonardsun899/monitoring-stack.git  # 替换为你的 Git 仓库地址
       targetRevision: main
       ref: values
   destination:
@@ -325,7 +347,7 @@ spec:
       helm:
         valueFiles:
           - $values/monitoring/values/prometheus-values.yaml
-    - repoURL: https://your-git-repo.git
+    - repoURL: https://github.com/leonardsun899/monitoring-stack.git  # 替换为你的 Git 仓库地址
       targetRevision: main
       ref: values
   destination:
@@ -356,6 +378,8 @@ spec:
 ```yaml
 loki:
   auth_enabled: false
+  commonConfig:
+    replication_factor: 1
   storage:
     type: filesystem
   limits_config:
@@ -365,9 +389,15 @@ loki:
     max_query_parallelism: 32
     max_query_series: 500
 
+# 使用单实例模式，不需要对象存储
+# 如果使用分布式模式，需要配置对象存储（S3、GCS 等）
+singleBinary:
+  replicas: 1
+  enabled: true
+
 persistence:
   enabled: true
-  storageClassName: gp3
+  storageClassName: do-block-storage  # 根据实际环境修改：AWS EKS 使用 gp3，DigitalOcean 使用 do-block-storage
   size: 50Gi
 
 resources:
@@ -382,6 +412,14 @@ service:
   type: ClusterIP
   port: 3100
 ```
+
+**重要提示：**
+- `singleBinary.enabled: true` 是必需的，否则 Loki 会尝试使用分布式模式，需要对象存储
+- `storageClassName` 需要根据实际环境修改：
+  - AWS EKS: `gp3` 或 `gp2`
+  - DigitalOcean: `do-block-storage`
+  - GKE: `standard` 或 `premium-rwo`
+  - 其他环境：使用 `kubectl get storageclass` 查看可用的存储类
 
 **`monitoring/values/promtail-values.yaml`**
 
@@ -455,7 +493,7 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: gp3
+          storageClassName: do-block-storage  # 根据实际环境修改
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
@@ -474,15 +512,17 @@ prometheus:
 grafana:
   enabled: true
   admin:
-    existingSecret: grafana-admin-credentials
-    userKey: admin-user
-    passwordKey: admin-password
+    # 不要使用 existingSecret，让 Helm chart 自动创建 secret
+    # 如果指定 existingSecret，需要先手动创建该 secret
+    # existingSecret: grafana-admin-credentials
+    # userKey: admin-user
+    # passwordKey: admin-password
   secret:
     admin-user: admin
-    admin-password: "admin"
+    admin-password: "admin"  # 生产环境请使用强密码，建议使用 Kubernetes Secret 管理工具
   persistence:
     enabled: true
-    storageClassName: gp3
+    storageClassName: do-block-storage  # 根据实际环境修改
     size: 10Gi
   resources:
     requests:
@@ -680,6 +720,10 @@ rate(nginx_http_requests_total{status=~"5.."}[5m]) / rate(nginx_http_requests_to
 
 ## 🔧 故障排查
 
+### 常见问题
+
+如果遇到部署问题，请参考 [DEBUG.md](./DEBUG.md) 获取详细的故障排查指南。
+
 ### ArgoCD 无法同步
 
 ```bash
@@ -690,6 +734,28 @@ kubectl logs -n argocd deployment/argocd-repo-server
 kubectl get application -n argocd
 kubectl describe application prometheus -n argocd
 ```
+
+### Loki 部署失败
+
+如果遇到 "Cannot run scalable targets without an object storage backend" 错误：
+
+1. 检查 `loki-values.yaml` 中是否启用了 `singleBinary.enabled: true`
+2. 参考 [DEBUG.md](./DEBUG.md) 中的问题 1
+
+### nginx-test-app 找不到 values 文件
+
+如果遇到 "no such file or directory" 错误：
+
+1. 检查 `nginx-app.yaml` 是否使用 `sources`（复数）而不是 `source`
+2. 确认 Git 仓库 URL 正确
+3. 参考 [DEBUG.md](./DEBUG.md) 中的问题 2
+
+### Grafana Pod 无法启动
+
+如果遇到 "secret not found" 错误：
+
+1. 检查 `prometheus-values.yaml` 中是否移除了 `existingSecret` 配置
+2. 参考 [DEBUG.md](./DEBUG.md) 中的问题 3
 
 ### Prometheus 无法抓取 Metrics
 
