@@ -85,3 +85,23 @@ serviceAccount:
   create: false # Do not auto-create ServiceAccount (Terraform has created it)
   name: loki-s3-service-account # Use ServiceAccount created by Terraform (IRSA configured)
 
+# Cache components configuration
+# Reduce resource requests to fit within node capacity
+chunksCache:
+  enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi  # Reduced from default 9830Mi to fit node capacity (~3.8GB)
+    limits:
+      memory: 2Gi  # Allow some burst but limit to prevent OOM
+
+resultsCache:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
