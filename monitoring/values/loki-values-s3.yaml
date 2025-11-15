@@ -89,6 +89,11 @@ serviceAccount:
 # Reduce resource requests to fit within node capacity
 chunksCache:
   enabled: true
+  # Reduce Memcached allocated memory from default 8192MB to 1024MB (1GB)
+  # This should match the Kubernetes memory limits
+  allocatedMemory: 1024  # MB, reduced from default 8192MB
+  maxItemMemory: 5  # MB, maximum item size
+  connectionLimit: 16384
   resources:
     requests:
       cpu: 500m
