@@ -17,15 +17,19 @@ deploymentMode: SimpleScalable
 loki:
   auth_enabled: false
   # Schema configuration (required for SimpleScalable mode)
+  # Loki 3.0.0 requires schema v13 and tsdb index type
   schemaConfig:
     configs:
       - from: "2020-10-24"
-        store: boltdb-shipper
+        store: tsdb
         object_store: s3
-        schema: v11
+        schema: v13
         index:
           prefix: index_
           period: 24h
+  # Disable structured metadata to avoid validation errors (can enable after schema update)
+  limits_config:
+    allow_structured_metadata: false
   storage:
     type: s3
     bucketNames:
@@ -60,11 +64,19 @@ simpleScalable:
       enabled: true
       storageClassName: gp3
       size: 10Gi
+      # Ensure storageClassName is set in volumeClaimTemplates
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
   write:
     persistence:
       enabled: true
       storageClassName: gp3
       size: 10Gi
+      # Ensure storageClassName is set in volumeClaimTemplates
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
 
 # ServiceAccount configuration (if using IRSA)
 # Terraform will automatically create ServiceAccount and associate IAM Role
