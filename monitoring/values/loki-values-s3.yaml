@@ -16,14 +16,24 @@ deploymentMode: SimpleScalable
 # Loki storage configuration - AWS S3
 loki:
   auth_enabled: false
+  # Schema configuration (required for SimpleScalable mode)
+  schemaConfig:
+    configs:
+      - from: "2020-10-24"
+        store: boltdb-shipper
+        object_store: s3
+        schema: v11
+        index:
+          prefix: index_
+          period: 24h
   storage:
     type: s3
     bucketNames:
-      chunks: ${LOKI_S3_BUCKET_NAME} # From Terraform output, or manually replace
-      ruler: ${LOKI_S3_BUCKET_NAME} # From Terraform output, or manually replace
+      chunks: eks-test-loki-storage-d6756e1c # From Terraform output, or manually replace
+      ruler: eks-test-loki-storage-d6756e1c # From Terraform output, or manually replace
     s3:
       endpoint: s3.amazonaws.com # AWS S3 endpoint
-      region: ${AWS_REGION} # From Terraform output, or manually replace (e.g., us-west-2)
+      region: ap-southeast-2 # From Terraform output, or manually replace (e.g., us-west-2)
       s3ForcePathStyle: false
       # If using IRSA, no need to configure accessKeyId and secretAccessKey
       # AWS SDK will automatically get temporary credentials from Pod's ServiceAccount
