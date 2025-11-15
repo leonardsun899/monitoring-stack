@@ -33,8 +33,8 @@ loki:
   storage:
     type: s3
     bucketNames:
-      chunks: eks-test-loki-storage-d6756e1c # From Terraform output, or manually replace
-      ruler: eks-test-loki-storage-d6756e1c # From Terraform output, or manually replace
+      chunks: eks-test-loki-storage-565c7d68 # From Terraform output, or manually replace
+      ruler: eks-test-loki-storage-565c7d68 # From Terraform output, or manually replace
     s3:
       endpoint: s3.amazonaws.com # AWS S3 endpoint
       region: ap-southeast-2 # From Terraform output, or manually replace (e.g., us-west-2)
