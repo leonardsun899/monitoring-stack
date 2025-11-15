@@ -1,20 +1,20 @@
-# Loki 配置 - 使用默认 Helm Chart 配置 + DigitalOcean Spaces
-# 这是最简化的配置，只覆盖必要的 Spaces 设置，其他使用默认值
+# Loki configuration - Using default Helm Chart configuration + DigitalOcean Spaces
+# This is the most simplified configuration, only overriding necessary Spaces settings, others use defaults
 
-# 使用默认的 SimpleScalable 模式（不需要显式设置，但为了清晰还是写上）
+# Use default SimpleScalable mode (no need to explicitly set, but written for clarity)
 deploymentMode: SimpleScalable
 
-# Loki 存储配置 - DigitalOcean Spaces (S3 兼容)
-# 这是唯一需要自定义的部分
+# Loki storage configuration - DigitalOcean Spaces (S3 compatible)
+# This is the only part that needs customization
 loki:
   storage:
     type: s3
     bucketNames:
-      chunks: loki-storage  # ⚠️ 将被脚本替换
-      ruler: loki-storage   # ⚠️ 将被脚本替换
+      chunks: loki-storage  # ⚠️ Will be replaced by script
+      ruler: loki-storage   # ⚠️ Will be replaced by script
     s3:
-      endpoint: sgp1.digitaloceanspaces.com  # ⚠️ 将被脚本替换 (默认: sgp1 for Sydney)
-      region: sgp1  # ⚠️ 将被脚本替换 (默认: sgp1 for Sydney)
+      endpoint: sgp1.digitaloceanspaces.com  # ⚠️ Will be replaced by script (default: sgp1 for Sydney)
+      region: sgp1  # ⚠️ Will be replaced by script (default: sgp1 for Sydney)
       s3ForcePathStyle: true
       secretAccessKey:
         name: loki-spaces-credentials
@@ -23,18 +23,18 @@ loki:
         name: loki-spaces-credentials
         key: AWS_ACCESS_KEY_ID
 
-# 持久化存储（用于索引）
+# Persistent storage (for index)
 persistence:
   enabled: true
   storageClassName: do-block-storage
   size: 10Gi
 
-# 注意：其他所有配置都使用 Helm Chart 的默认值
-# 包括：
-# - simpleScalable.enabled: true (默认)
-# - simpleScalable.replicas: 1 (默认)
-# - chunksCache.enabled: true (默认)
-# - resultsCache.enabled: true (默认)
-# - gateway.enabled: true (默认)
-# 等等...
+# Note: All other configurations use Helm Chart defaults
+# Including:
+# - simpleScalable.enabled: true (default)
+# - simpleScalable.replicas: 1 (default)
+# - chunksCache.enabled: true (default)
+# - resultsCache.enabled: true (default)
+# - gateway.enabled: true (default)
+# etc...
 

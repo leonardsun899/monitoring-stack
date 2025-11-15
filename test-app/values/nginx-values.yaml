@@ -1,11 +1,11 @@
-# Nginx 测试应用配置
-# 尽量使用 Helm Chart 默认配置，只覆盖必要的设置
+# Nginx test application configuration
+# Try to use Helm Chart default configuration, only override necessary settings
 
-# 服务类型：LoadBalancer（用于外部访问）
+# Service type: LoadBalancer (for external access)
 service:
   type: LoadBalancer
 
-# 启用 Prometheus Metrics Exporter（用于监控）
+# Enable Prometheus Metrics Exporter (for monitoring)
 metrics:
   enabled: true
   serviceMonitor:

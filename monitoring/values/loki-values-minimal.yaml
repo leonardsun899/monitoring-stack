@@ -1,5 +1,5 @@
-# Loki 最小化配置
-# 只包含必需的配置项，用于排查问题
+# Loki minimal configuration
+# Only includes essential configuration items for troubleshooting
 
 deploymentMode: SingleBinary
 

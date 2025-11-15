@@ -1,7 +1,7 @@
-# Prometheus + Grafana 配置
-# 尽量使用 Helm Chart 默认配置，只覆盖必要的设置
+# Prometheus + Grafana configuration
+# Try to use Helm Chart default configuration, only override necessary settings
 
-# Prometheus 配置
+# Prometheus configuration
 prometheus:
   enabled: true
   prometheusSpec:
@@ -9,7 +9,7 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: gp3  # AWS EKS 使用 gp3
+          storageClassName: gp3  # AWS EKS uses gp3
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
@@ -18,20 +18,20 @@ prometheus:
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
 
-# Grafana 配置
+# Grafana configuration
 grafana:
   enabled: true
-  # 使用 secret 配置管理员账户（避免模板错误）
+  # Use secret to configure admin account (avoid template errors)
   secret:
     admin-user: admin
-    admin-password: "admin"  # 生产环境请使用强密码
+    admin-password: "admin"  # Use strong password in production
   persistence:
     enabled: true
-    storageClassName: gp3  # AWS EKS 使用 gp3
+    storageClassName: gp3  # AWS EKS uses gp3
     size: 10Gi
   service:
-    type: LoadBalancer  # 测试环境使用 LoadBalancer
-  # 配置数据源
+    type: LoadBalancer  # Use LoadBalancer for test environment
+  # Configure datasources
   datasources:
     datasources.yaml:
       apiVersion: 1
@@ -45,8 +45,8 @@ grafana:
           type: loki
           access: proxy
           url: http://loki.monitoring.svc:3100
-          isDefault: false  # 只能有一个默认数据源
-  # 预装仪表板
+          isDefault: false  # Only one datasource can be default
+  # Pre-installed dashboards
   dashboards:
     default:
       kubernetes-cluster-monitoring:
@@ -66,7 +66,7 @@ grafana:
         revision: 1
         datasource: Loki
 
-# 启用其他组件（使用默认配置）
+# Enable other components (using default configuration)
 alertmanager:
   enabled: true
 nodeExporter:

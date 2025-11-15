@@ -17,27 +17,27 @@ terraform {
   }
 }
 
-# 配置 AWS Provider
+# Configure AWS Provider
 provider "aws" {
   region = var.aws_region
 }
 
-# 获取当前 AWS 账户信息
+# Get current AWS account information
 data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
 
-# 如果未指定存储桶名称，自动生成一个
+# Auto-generate bucket name if not specified
 locals {
   loki_bucket_name = var.loki_s3_bucket_name != "" ? var.loki_s3_bucket_name : "${var.cluster_name}-loki-storage-${random_id.bucket_suffix.hex}"
 }
 
-# 随机后缀，用于确保存储桶名称唯一
+# Random suffix to ensure bucket name uniqueness
 resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
 
-# 创建 EKS 集群
+# Create EKS Cluster
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 19.0"
@@ -48,10 +48,10 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  # 启用 IRSA
+  # Enable IRSA
   enable_irsa = true
 
-  # 节点组配置
+  # Node group configuration
   eks_managed_node_groups = {
     main = {
       min_size     = var.node_min_size
@@ -61,21 +61,21 @@ module "eks" {
       instance_types = var.node_instance_types
       capacity_type  = "ON_DEMAND"
 
-      # 节点标签
+      # Node labels
       labels = {
         Environment = var.environment
       }
     }
   }
 
-  # 集群标签
+  # Cluster tags
   tags = {
     Environment = var.environment
     ManagedBy   = "Terraform"
   }
 }
 
-# 创建 VPC
+# Create VPC
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
@@ -98,12 +98,12 @@ module "vpc" {
   }
 }
 
-# 创建 S3 存储桶用于 Loki
+# Create S3 bucket for Loki
 resource "aws_s3_bucket" "loki_storage" {
   bucket = local.loki_bucket_name
 
-  # 允许在 destroy 时删除非空的 bucket
-  # 注意：这会强制删除 bucket 中的所有对象和版本
+  # Allow deletion of non-empty bucket during destroy
+  # Note: This will force delete all objects and versions in the bucket
   force_destroy = true
 
   tags = {
@@ -113,7 +113,7 @@ resource "aws_s3_bucket" "loki_storage" {
   }
 }
 
-# 配置 S3 存储桶版本控制
+# Configure S3 bucket versioning
 resource "aws_s3_bucket_versioning" "loki_storage" {
   bucket = aws_s3_bucket.loki_storage.id
 
@@ -122,7 +122,7 @@ resource "aws_s3_bucket_versioning" "loki_storage" {
   }
 }
 
-# 配置 S3 存储桶公共访问阻止（安全最佳实践）
+# Configure S3 bucket public access block (security best practice)
 resource "aws_s3_bucket_public_access_block" "loki_storage" {
   bucket = aws_s3_bucket.loki_storage.id
 
@@ -132,7 +132,7 @@ resource "aws_s3_bucket_public_access_block" "loki_storage" {
   restrict_public_buckets = true
 }
 
-# 配置 S3 存储桶加密
+# Configure S3 bucket encryption
 resource "aws_s3_bucket_server_side_encryption_configuration" "loki_storage" {
   bucket = aws_s3_bucket.loki_storage.id
 
@@ -143,7 +143,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "loki_storage" {
   }
 }
 
-# 配置 S3 存储桶生命周期规则（用于清理旧数据和版本）
+# Configure S3 bucket lifecycle rules (for cleaning up old data and versions)
 resource "aws_s3_bucket_lifecycle_configuration" "loki_storage" {
   bucket = aws_s3_bucket.loki_storage.id
 
@@ -151,19 +151,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "loki_storage" {
     id     = "delete-old-logs"
     status = "Enabled"
 
-    # 删除过期的对象
+    # Delete expired objects
     expiration {
       days = var.loki_retention_days
     }
 
-    # 删除旧版本（有助于在 destroy 时删除 bucket）
+    # Delete old versions (helps with bucket deletion during destroy)
     noncurrent_version_expiration {
       noncurrent_days = var.loki_retention_days
     }
   }
 }
 
-# 创建 IAM 策略，允许访问 Loki S3 存储桶
+# Create IAM policy to allow access to Loki S3 bucket
 resource "aws_iam_policy" "loki_s3_access" {
   name        = "${var.cluster_name}-loki-s3-access-policy"
   description = "Policy for Loki to access S3 storage bucket"
@@ -193,7 +193,7 @@ resource "aws_iam_policy" "loki_s3_access" {
   }
 }
 
-# 获取 EKS 集群的 OIDC 提供商
+# Get EKS cluster OIDC provider
 data "aws_eks_cluster" "cluster" {
   name = module.eks.cluster_name
 }
@@ -202,7 +202,7 @@ data "aws_iam_openid_connect_provider" "eks" {
   url = data.aws_eks_cluster.cluster.identity[0].oidc[0].issuer
 }
 
-# 创建 IAM Role，用于 IRSA
+# Create IAM Role for IRSA
 resource "aws_iam_role" "loki_s3_role" {
   name = "${var.cluster_name}-loki-s3-role"
 
@@ -231,13 +231,13 @@ resource "aws_iam_role" "loki_s3_role" {
   }
 }
 
-# 将策略附加到角色
+# Attach policy to role
 resource "aws_iam_role_policy_attachment" "loki_s3_access" {
   role       = aws_iam_role.loki_s3_role.name
   policy_arn = aws_iam_policy.loki_s3_access.arn
 }
 
-# 配置 Kubernetes Provider
+# Configure Kubernetes Provider
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
@@ -253,7 +253,7 @@ provider "kubernetes" {
   }
 }
 
-# 创建 Kubernetes Namespace
+# Create Kubernetes Namespace
 resource "kubernetes_namespace" "monitoring" {
   metadata {
     name = "monitoring"
@@ -264,7 +264,7 @@ resource "kubernetes_namespace" "monitoring" {
   }
 }
 
-# 创建 Kubernetes ServiceAccount，关联 IAM Role
+# Create Kubernetes ServiceAccount with IAM Role association
 resource "kubernetes_service_account" "loki_s3" {
   depends_on = [module.eks]
 

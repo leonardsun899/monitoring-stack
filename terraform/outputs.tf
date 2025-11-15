@@ -1,20 +1,20 @@
-# 输出值 - 仅保留必要的输出
+# Output values - only essential outputs
 
-# 配置 kubectl 的命令（用于连接集群）
+# Command to configure kubectl (for connecting to cluster)
 output "configure_kubectl" {
-  description = "配置 kubectl 的命令"
+  description = "Command to configure kubectl"
   value       = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.aws_region}"
 }
 
-# Loki S3 存储桶名称（用于更新 loki-values-s3.yaml）
+# Loki S3 bucket name (for updating loki-values-s3.yaml)
 output "loki_s3_bucket_name" {
-  description = "Loki S3 存储桶名称"
+  description = "Loki S3 bucket name"
   value       = aws_s3_bucket.loki_storage.id
 }
 
-# AWS 区域（用于更新 loki-values-s3.yaml）
+# AWS region (for updating loki-values-s3.yaml)
 output "aws_region" {
-  description = "AWS 区域"
+  description = "AWS region"
   value       = var.aws_region
 }
 

@@ -1,7 +1,7 @@
-# Promtail 配置
-# 尽量使用 Helm Chart 默认配置，只覆盖必要的设置
+# Promtail configuration
+# Try to use Helm Chart default configuration, only override necessary settings
 
-# 配置 Promtail 连接到 Loki
+# Configure Promtail to connect to Loki
 config:
   clients:
     - url: http://loki.monitoring.svc:3100/loki/api/v1/push

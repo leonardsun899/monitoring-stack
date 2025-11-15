@@ -1,19 +1,19 @@
-# Loki 配置 - 使用 SingleBinary 模式（不需要 S3）
-# 如果使用默认 Helm Chart 配置（SimpleScalable），需要配置 S3 存储
-# 详见 COMPLETE-MONITORING-STACK-SETUP.md 中的 S3 配置说明
+# Loki configuration - Using SingleBinary mode (no S3 required)
+# If using default Helm Chart configuration (SimpleScalable), S3 storage needs to be configured
+# See S3 configuration instructions in COMPLETE-MONITORING-STACK-SETUP.md
 
-# 使用单实例模式，使用文件系统存储（不需要 S3）
+# Use single instance mode with filesystem storage (no S3 required)
 deploymentMode: SingleBinary
 
 singleBinary:
   enabled: true
 
-# 禁用 SimpleScalable 模式（默认模式需要 S3）
+# Disable SimpleScalable mode (default mode requires S3)
 simpleScalable:
   enabled: false
   replicas: 0
 
-# 禁用其他部署模式
+# Disable other deployment modes
 read:
   enabled: false
   replicas: 0
@@ -24,19 +24,19 @@ backend:
   enabled: false
   replicas: 0
 
-# Loki 基础配置
+# Loki basic configuration
 loki:
   auth_enabled: false
   storage:
     type: filesystem
 
-# 持久化存储（AWS EKS 使用 gp3）
+# Persistent storage (AWS EKS uses gp3)
 persistence:
   enabled: true
   storageClassName: gp3
   size: 50Gi
 
-# 禁用不需要的组件（SingleBinary 模式）
+# Disable unnecessary components (SingleBinary mode)
 chunksCache:
   enabled: false
 resultsCache:

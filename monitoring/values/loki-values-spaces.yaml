@@ -1,20 +1,20 @@
-# Loki 配置 - 使用 DigitalOcean Spaces (对象存储)
-# 使用此配置可以避免 SingleBinary 模式的验证问题
+# Loki configuration - Using DigitalOcean Spaces (object storage)
+# Using this configuration can avoid SingleBinary mode validation issues
 
-# 使用 SimpleScalable 模式（默认模式，不需要特殊配置）
+# Use SimpleScalable mode (default mode, no special configuration needed)
 deploymentMode: SimpleScalable
 
-# SimpleScalable 模式配置
+# SimpleScalable mode configuration
 simpleScalable:
   enabled: true
-  replicas: 1  # 可以根据需要调整
+  replicas: 1  # Can be adjusted as needed
 
-# 禁用 SingleBinary 模式
+# Disable SingleBinary mode
 singleBinary:
   enabled: false
   replicas: 0
 
-# Loki 存储配置 - DigitalOcean Spaces (S3 兼容)
+# Loki storage configuration - DigitalOcean Spaces (S3 compatible)
 loki:
   auth_enabled: false
   commonConfig:
@@ -22,24 +22,24 @@ loki:
   storage:
     type: s3
     bucketNames:
-      chunks: loki-storage  # ⚠️ 替换为你的 Spaces 名称
-      ruler: loki-storage   # ⚠️ 替换为你的 Spaces 名称
+      chunks: loki-storage  # ⚠️ Replace with your Spaces name
+      ruler: loki-storage   # ⚠️ Replace with your Spaces name
     s3:
-      # ⚠️ 替换为你的 Spaces 区域端点
-      # 常见端点：
+      # ⚠️ Replace with your Spaces region endpoint
+      # Common endpoints:
       # - nyc3.digitaloceanspaces.com (New York 3)
       # - sfo3.digitaloceanspaces.com (San Francisco 3)
       # - sgp1.digitaloceanspaces.com (Singapore 1)
       # - ams3.digitaloceanspaces.com (Amsterdam 3)
       # - fra1.digitaloceanspaces.com (Frankfurt 1)
       endpoint: nyc3.digitaloceanspaces.com
-      region: nyc3  # ⚠️ 替换为你的 Spaces 区域
+      region: nyc3  # ⚠️ Replace with your Spaces region
       s3ForcePathStyle: true
       secretAccessKey:
-        name: loki-spaces-credentials  # Kubernetes Secret 名称
+        name: loki-spaces-credentials  # Kubernetes Secret name
         key: AWS_SECRET_ACCESS_KEY
       accessKeyId:
-        name: loki-spaces-credentials  # Kubernetes Secret 名称
+        name: loki-spaces-credentials  # Kubernetes Secret name
         key: AWS_ACCESS_KEY_ID
   limits_config:
     retention_period: 720h
@@ -48,14 +48,14 @@ loki:
     max_query_parallelism: 32
     max_query_series: 500
 
-# 持久化存储（用于索引，不是日志数据）
-# 索引数据较小，10Gi 足够
+# Persistent storage (for index, not log data)
+# Index data is small, 10Gi is sufficient
 persistence:
   enabled: true
   storageClassName: do-block-storage
   size: 10Gi
 
-# 资源限制
+# Resource limits
 resources:
   requests:
     cpu: 200m
@@ -64,12 +64,12 @@ resources:
     cpu: 1000m
     memory: 2Gi
 
-# Service 配置
+# Service configuration
 service:
   type: ClusterIP
   port: 3100
 
-# 缓存组件（SimpleScalable 模式可以使用，提高性能）
+# Cache components (can be used in SimpleScalable mode to improve performance)
 chunksCache:
   enabled: true
   replicas: 1
@@ -78,11 +78,11 @@ resultsCache:
   enabled: true
   replicas: 1
 
-# Gateway（SimpleScalable 模式推荐使用）
+# Gateway (recommended for SimpleScalable mode)
 gateway:
   enabled: true
 
-# Canary（可选，用于测试）
+# Canary (optional, for testing)
 canary:
   enabled: false
 
