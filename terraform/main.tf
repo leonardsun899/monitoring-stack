@@ -102,6 +102,10 @@ module "vpc" {
 resource "aws_s3_bucket" "loki_storage" {
   bucket = local.loki_bucket_name
 
+  # 允许在 destroy 时删除非空的 bucket
+  # 注意：这会强制删除 bucket 中的所有对象和版本
+  force_destroy = true
+
   tags = {
     Name        = "Loki Storage"
     Environment = var.environment
@@ -116,6 +120,16 @@ resource "aws_s3_bucket_versioning" "loki_storage" {
   versioning_configuration {
     status = "Enabled"
   }
+}
+
+# 配置 S3 存储桶公共访问阻止（安全最佳实践）
+resource "aws_s3_bucket_public_access_block" "loki_storage" {
+  bucket = aws_s3_bucket.loki_storage.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
 # 配置 S3 存储桶加密
@@ -260,51 +274,3 @@ resource "kubernetes_service_account" "loki_s3" {
     }
   }
 }
-
-# 输出值
-output "cluster_name" {
-  description = "EKS 集群名称"
-  value       = module.eks.cluster_name
-}
-
-output "cluster_endpoint" {
-  description = "EKS 集群端点"
-  value       = module.eks.cluster_endpoint
-}
-
-output "cluster_certificate_authority_data" {
-  description = "EKS 集群 CA 证书"
-  value       = module.eks.cluster_certificate_authority_data
-  sensitive   = true
-}
-
-output "loki_s3_bucket_name" {
-  description = "Loki S3 存储桶名称"
-  value       = aws_s3_bucket.loki_storage.id
-}
-
-output "aws_region" {
-  description = "AWS 区域"
-  value       = var.aws_region
-}
-
-output "loki_s3_bucket_arn" {
-  description = "Loki S3 存储桶 ARN"
-  value       = aws_s3_bucket.loki_storage.arn
-}
-
-output "loki_iam_role_arn" {
-  description = "Loki IRSA IAM Role ARN"
-  value       = aws_iam_role.loki_s3_role.arn
-}
-
-output "loki_service_account_name" {
-  description = "Loki ServiceAccount 名称"
-  value       = kubernetes_service_account.loki_s3.metadata[0].name
-}
-
-output "configure_kubectl" {
-  description = "配置 kubectl 的命令"
-  value       = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.aws_region}"
-}
-

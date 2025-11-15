@@ -45,6 +45,7 @@ kubectl get storageclass
 ## 🚀 Step 0: 使用 Terraform 创建 EKS 集群和基础设施
 
 本步骤使用 Terraform 自动创建：
+
 - AWS EKS 集群（启用 IRSA）
 - VPC 和网络资源
 - S3 存储桶（用于 Loki）
@@ -131,6 +132,7 @@ cd ..
 ```
 
 这个脚本会：
+
 - 从 Terraform 输出获取 S3 存储桶名称和 AWS 区域
 - 自动更新 `monitoring/values/loki-values-s3.yaml` 文件
 - 备份原文件
@@ -642,12 +644,14 @@ IRSA 允许 Kubernetes ServiceAccount 直接使用 IAM Role，无需存储访问
 **如果使用 Terraform（推荐）：**
 
 Terraform 已经自动完成了所有 IRSA 配置：
+
 - ✅ 创建了 S3 存储桶
 - ✅ 创建了 IAM 策略和角色
 - ✅ 创建了 Kubernetes ServiceAccount（已配置 IRSA 注解）
 - ✅ 创建了 `monitoring` Namespace
 
 你只需要：
+
 1. 运行 `./terraform/update-loki-values.sh` 更新 Loki values 文件（已在 Step 0.6 完成）
 2. 确保 `monitoring/values/loki-values-s3.yaml` 中的 `serviceAccount.name` 设置为 `loki-s3-service-account`
 3. 修改 `monitoring/argocd/loki.yaml` 中的 `valueFiles` 为 `loki-values-s3.yaml`
@@ -850,7 +854,7 @@ spec:
       targetRevision: 6.0.0
       helm:
         valueFiles:
-          - $values/monitoring/values/loki-values-s3.yaml  # 使用 S3 配置
+          - $values/monitoring/values/loki-values-s3.yaml # 使用 S3 配置
     - repoURL: https://github.com/leonardsun899/monitoring-stack.git
       targetRevision: main
       ref: values
