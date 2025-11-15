@@ -74,9 +74,16 @@ environment       = "production"
 # 如果为空，Terraform 会自动生成唯一名称
 loki_s3_bucket_name = ""  # 留空以自动生成，或指定一个全局唯一的名称
 loki_retention_days = 30
+
+# Kubernetes 资源创建（推荐：false，避免超时问题）
+create_kubernetes_resources = false  # 设置为 false，手动创建 namespace 和 ServiceAccount
 ```
 
-**注意**：如果 `loki_s3_bucket_name` 为空，Terraform 会自动生成一个唯一名称。
+**重要说明**：
+
+- 如果 `loki_s3_bucket_name` 为空，Terraform 会自动生成一个唯一名称
+- **`create_kubernetes_resources = false`（推荐）**：Terraform 不会创建 Kubernetes namespace 和 ServiceAccount，需要手动创建（见 Step 0.8）
+- 如果设置为 `true`，Terraform 会尝试创建，但可能遇到超时问题
 
 ### 0.2 初始化 Terraform
 
@@ -121,6 +128,32 @@ kubectl cluster-info
 kubectl get nodes
 ```
 
+**如果遇到连接超时问题**：
+
+如果 `kubectl cluster-info` 报错 `i/o timeout`，可能是 EKS 集群端点访问配置问题：
+
+1. **检查集群端点访问配置**：
+
+   ```bash
+   aws eks describe-cluster --name <cluster-name> --region <region> \
+     --query 'cluster.resourcesVpcConfig.endpointPublicAccess'
+   ```
+
+2. **如果返回 `false`**，需要更新 Terraform 配置并重新应用：
+
+   - Terraform 配置已包含 `cluster_endpoint_public_access = true`
+   - 运行 `terraform apply` 更新集群配置
+   - 等待几分钟让配置生效
+
+3. **或者手动启用公共访问**（临时方案）：
+   ```bash
+   aws eks update-cluster-config \
+     --name <cluster-name> \
+     --region <region> \
+     --resources-vpc-config endpointPublicAccess=true,endpointPrivateAccess=true
+   ```
+   然后等待几分钟，再尝试 `kubectl cluster-info`
+
 ### 0.6 更新 Loki Values 文件
 
 Terraform 会自动创建 S3 存储桶和 ServiceAccount，现在需要更新 Loki values 文件以使用这些资源：
@@ -154,7 +187,7 @@ sed -i.bak \
 ### 0.7 验证 Terraform 创建的资源
 
 ```bash
-# 检查 ServiceAccount（应该已配置 IRSA 注解）
+# 检查 ServiceAccount（如果 create_kubernetes_resources = true）
 kubectl get serviceaccount -n monitoring loki-s3-service-account -o yaml
 
 # 应该看到注解：
@@ -165,6 +198,9 @@ terraform -chdir=terraform output loki_s3_bucket_name
 
 # 检查 AWS 区域
 terraform -chdir=terraform output aws_region
+
+# 检查 IAM Role ARN（用于手动创建 ServiceAccount）
+terraform -chdir=terraform output loki_s3_role_arn
 ```
 
 **Terraform 输出值：**
@@ -178,7 +214,58 @@ terraform output
 terraform output configure_kubectl      # 配置 kubectl 的命令
 terraform output loki_s3_bucket_name    # S3 存储桶名称
 terraform output aws_region             # AWS 区域
+terraform output loki_s3_role_arn       # IAM Role ARN（用于手动创建 ServiceAccount）
 ```
+
+### 0.8 创建 Namespace 和 ServiceAccount（必需）
+
+**默认情况下**，Terraform 不会创建 Kubernetes namespace 和 ServiceAccount（`create_kubernetes_resources = false`），需要手动创建：
+
+**方式 1：手动创建 namespace 和 ServiceAccount（推荐）**
+
+```bash
+# 1. 创建 namespace
+kubectl create namespace monitoring
+
+# 2. 获取 IAM Role ARN
+cd terraform
+ROLE_ARN=$(terraform output -raw loki_s3_role_arn)
+
+# 3. 创建 ServiceAccount（带 IRSA 注解）
+kubectl create serviceaccount loki-s3-service-account -n monitoring
+kubectl annotate serviceaccount loki-s3-service-account -n monitoring \
+  eks.amazonaws.com/role-arn=${ROLE_ARN}
+
+# 4. 验证
+kubectl get serviceaccount -n monitoring loki-s3-service-account -o yaml
+```
+
+**方式 2：让 ArgoCD 自动创建 Namespace（更简单）**
+
+ArgoCD Application 已配置 `CreateNamespace=true`，会自动创建 namespace。你只需要手动创建 ServiceAccount：
+
+```bash
+# 1. 配置 kubectl（如果还没有配置）
+cd terraform
+terraform output -raw configure_kubectl | bash
+
+# 2. 获取 IAM Role ARN
+ROLE_ARN=$(terraform output -raw loki_s3_role_arn)
+
+# 3. 创建 ServiceAccount（ArgoCD 会在部署应用时自动创建 namespace）
+kubectl create serviceaccount loki-s3-service-account -n monitoring
+kubectl annotate serviceaccount loki-s3-service-account -n monitoring \
+  eks.amazonaws.com/role-arn=${ROLE_ARN}
+
+# 4. 验证
+kubectl get serviceaccount -n monitoring loki-s3-service-account -o yaml
+```
+
+**注意**：
+
+- **默认情况下**，Terraform **不会**创建 Kubernetes 资源（`create_kubernetes_resources = false`），避免超时问题
+- 推荐使用**方式 2**：让 ArgoCD 自动创建 namespace，只手动创建 ServiceAccount
+- 如果希望 Terraform 自动创建，可以设置 `create_kubernetes_resources = true`，但可能遇到超时问题
 
 ---
 

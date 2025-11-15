@@ -55,13 +55,13 @@ variable "node_min_size" {
 variable "node_max_size" {
   description = "Maximum number of instances in node group"
   type        = number
-  default     = 3
+  default     = 4
 }
 
 variable "node_desired_size" {
   description = "Desired number of instances in node group"
   type        = number
-  default     = 2
+  default     = 4
 }
 
 variable "node_instance_types" {
@@ -73,12 +73,24 @@ variable "node_instance_types" {
 variable "loki_s3_bucket_name" {
   description = "Loki S3 bucket name (must be globally unique). If empty, will be auto-generated"
   type        = string
-  default     = "loki-test-storage"
+  default     = "" # Empty by default to auto-generate unique name
 }
 
 variable "loki_retention_days" {
   description = "Loki log retention days"
   type        = number
   default     = 30
+}
+
+variable "create_kubernetes_resources" {
+  description = "Whether to create Kubernetes namespace and ServiceAccount in Terraform. If false, create them manually or let ArgoCD create the namespace. Recommended: false to avoid timeout issues"
+  type        = bool
+  default     = false # Default to false to avoid timeout issues
+}
+
+variable "create_loadbalancer_services" {
+  description = "Whether to create LoadBalancer services in Terraform. This ensures LoadBalancers are deleted during terraform destroy. Recommended: true"
+  type        = bool
+  default     = true
 }
 

@@ -1,9 +1,9 @@
 # Nginx test application configuration
 # Try to use Helm Chart default configuration, only override necessary settings
 
-# Service type: LoadBalancer (for external access)
+# Service type: ClusterIP (LoadBalancer is managed by Terraform)
 service:
-  type: LoadBalancer
+  type: ClusterIP
 
 # Enable Prometheus Metrics Exporter (for monitoring)
 metrics:

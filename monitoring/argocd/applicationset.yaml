@@ -1,0 +1,47 @@
+# OPTIONAL: ApplicationSet configuration
+# This file is optional and only needed if you want to use ApplicationSet
+# to manage Applications in monitoring namespace instead of argocd namespace.
+#
+# Current default configuration: All Applications are in argocd namespace
+# (see loki.yaml, prometheus.yaml, promtail.yaml)
+#
+# To use this ApplicationSet:
+# 1. Configure ArgoCD to monitor monitoring namespace (see ARGOCD-NAMESPACE-CONFIGURATION.md)
+# 2. Deploy this ApplicationSet: kubectl apply -f monitoring/argocd/applicationset.yaml
+#
+# For now, you can ignore this file and use the default configuration.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: monitoring-stack
+  namespace: monitoring # ApplicationSet 在 monitoring namespace (optional)
+  labels:
+    app.kubernetes.io/name: monitoring-stack
+    app.kubernetes.io/component: argocd
+spec:
+  generators:
+    # Merge generator: combines Git directory discovery with Application definitions
+    - merge:
+        generators:
+          # Discover Application YAML files in Git repository
+          - git:
+              repoURL: https://github.com/leonardsun899/monitoring-stack.git
+              revision: main
+              directories:
+                - path: monitoring/argocd/*
+                  exclude: "applicationset.yaml" # Exclude ApplicationSet itself
+        mergeKeys:
+          - name # Merge based on Application name
+        template:
+          metadata:
+            # Override namespace to monitoring (original files have argocd)
+            namespace: monitoring
+            labels:
+              app.kubernetes.io/part-of: monitoring-stack
+              app.kubernetes.io/managed-by: applicationset
+          spec:
+            # The Application spec will be read from the Git repository files
+            # Only override namespace if needed
+            destination:
+              namespace: monitoring

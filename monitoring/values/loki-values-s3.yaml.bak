@@ -1,0 +1,75 @@
+# Loki configuration - Using default SimpleScalable mode (requires S3)
+# Try to use Helm Chart default configuration, only override necessary S3 settings
+#
+# Two S3 access methods are supported:
+# 1. IRSA (IAM Roles for Service Accounts) - Recommended, no Secret needed
+# 2. IAM user access keys - Requires creating Kubernetes Secret
+#
+# If using Terraform deployment, the following values will be auto-populated:
+# - bucketNames: From Terraform output
+# - region: From Terraform output
+# - serviceAccount.name: From Terraform output
+
+# Use default SimpleScalable mode
+deploymentMode: SimpleScalable
+
+# Loki storage configuration - AWS S3
+loki:
+  auth_enabled: false
+  # Schema configuration (required for SimpleScalable mode)
+  schemaConfig:
+    configs:
+      - from: "2020-10-24"
+        store: boltdb-shipper
+        object_store: s3
+        schema: v11
+        index:
+          prefix: index_
+          period: 24h
+  storage:
+    type: s3
+    bucketNames:
+      chunks: eks-test-loki-storage-d6756e1c # From Terraform output, or manually replace
+      ruler: eks-test-loki-storage-d6756e1c # From Terraform output, or manually replace
+    s3:
+      endpoint: s3.amazonaws.com # AWS S3 endpoint
+      region: ap-southeast-2 # From Terraform output, or manually replace (e.g., us-west-2)
+      s3ForcePathStyle: false
+      # If using IRSA, no need to configure accessKeyId and secretAccessKey
+      # AWS SDK will automatically get temporary credentials from Pod's ServiceAccount
+      #
+      # If using IAM user access keys, uncomment and configure below:
+      # secretAccessKey:
+      #   name: loki-s3-credentials  # Kubernetes Secret name
+      #   key: AWS_SECRET_ACCESS_KEY
+      # accessKeyId:
+      #   name: loki-s3-credentials  # Kubernetes Secret name
+      #   key: AWS_ACCESS_KEY_ID
+
+# Persistent storage (for index, not log data)
+# For SimpleScalable mode, need to configure persistence for each component
+persistence:
+  enabled: true
+  storageClassName: gp3
+  size: 10Gi
+
+# SimpleScalable mode component persistence configuration
+simpleScalable:
+  backend:
+    persistence:
+      enabled: true
+      storageClassName: gp3
+      size: 10Gi
+  write:
+    persistence:
+      enabled: true
+      storageClassName: gp3
+      size: 10Gi
+
+# ServiceAccount configuration (if using IRSA)
+# Terraform will automatically create ServiceAccount and associate IAM Role
+# If using Terraform deployment, uncomment below:
+serviceAccount:
+  create: false # Do not auto-create ServiceAccount (Terraform has created it)
+  name: loki-s3-service-account # Use ServiceAccount created by Terraform (IRSA configured)
+
