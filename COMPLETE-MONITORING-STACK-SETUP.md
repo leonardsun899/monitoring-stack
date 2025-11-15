@@ -160,11 +160,11 @@ kubectl get serviceaccount -n monitoring loki-s3-service-account -o yaml
 # 应该看到注解：
 # eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/<role-name>
 
-# 检查 S3 存储桶
+# 检查 S3 存储桶名称
 terraform -chdir=terraform output loki_s3_bucket_name
 
-# 检查 IAM Role
-terraform -chdir=terraform output loki_iam_role_arn
+# 检查 AWS 区域
+terraform -chdir=terraform output aws_region
 ```
 
 **Terraform 输出值：**
@@ -174,11 +174,10 @@ terraform -chdir=terraform output loki_iam_role_arn
 cd terraform
 terraform output
 
-# 常用输出
-terraform output cluster_name
-terraform output loki_s3_bucket_name
-terraform output loki_iam_role_arn
-terraform output configure_kubectl
+# 主要输出（用于配置 Loki）
+terraform output configure_kubectl      # 配置 kubectl 的命令
+terraform output loki_s3_bucket_name    # S3 存储桶名称
+terraform output aws_region             # AWS 区域
 ```
 
 ---

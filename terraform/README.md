@@ -105,13 +105,12 @@ Terraform 部署完成后，需要更新 Loki values 文件以使用 Terraform �
 terraform output loki_s3_bucket_name
 
 # 获取 AWS 区域
-terraform output -raw aws_region  # 或从 terraform.tfvars 获取
-
-# 获取 ServiceAccount 名称
-terraform output loki_service_account_name
+terraform output aws_region
 ```
 
 然后更新 `monitoring/values/loki-values-s3.yaml`：
+
+**注意**：ServiceAccount 名称固定为 `loki-s3-service-account`，不需要从 Terraform 输出获取。
 
 ```yaml
 loki:
