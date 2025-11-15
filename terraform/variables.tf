@@ -1,25 +1,25 @@
 variable "aws_region" {
   description = "AWS 区域"
   type        = string
-  default     = "us-west-2"
+  default     = "ap-southeast-2"
 }
 
 variable "cluster_name" {
   description = "EKS 集群名称"
   type        = string
-  default     = "monitoring-stack-cluster"
+  default     = "eks-test"
 }
 
 variable "environment" {
   description = "环境名称（用于标签）"
   type        = string
-  default     = "production"
+  default     = "test"
 }
 
 variable "kubernetes_version" {
   description = "Kubernetes 版本"
   type        = string
-  default     = "1.28"
+  default     = "1.31"
 }
 
 variable "vpc_cidr" {
@@ -31,7 +31,7 @@ variable "vpc_cidr" {
 variable "availability_zones" {
   description = "可用区列表"
   type        = list(string)
-  default     = ["us-west-2a", "us-west-2b", "us-west-2c"]
+  default     = ["ap-southeast-2a", "ap-southeast-2b", "ap-southeast-2c"]
 }
 
 variable "private_subnet_cidrs" {
@@ -73,7 +73,7 @@ variable "node_instance_types" {
 variable "loki_s3_bucket_name" {
   description = "Loki S3 存储桶名称（必须全局唯一）。如果为空，将自动生成"
   type        = string
-  default     = ""
+  default     = "loki-test-storage"
 }
 
 variable "loki_retention_days" {

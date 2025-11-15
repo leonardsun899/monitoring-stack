@@ -35,10 +35,151 @@ kubectl get storageclass
 
 **重要：**
 
-- 本指南默认使用 AWS EKS，所有配置文件中的 `storageClassName` 已设置为 `gp3`
-- 如果使用其他云平台，需要修改相应的 `storageClassName`
-- **Loki 默认配置需要 S3 存储**：如果使用 Loki 的默认 Helm Chart 配置（SimpleScalable 模式），需要提前配置 AWS S3
-- **推荐使用 IRSA**：在 AWS EKS 上，推荐使用 IAM Roles for Service Accounts (IRSA) 来访问 S3，无需在 Kubernetes 中存储访问密钥，更安全且符合 AWS 最佳实践。详见 Step 3.5.1 的说明
+- 本指南使用 Terraform 自动创建 AWS EKS 集群和相关资源
+- 所有配置文件中的 `storageClassName` 已设置为 `gp3`
+- **Loki 使用 S3 存储**：Terraform 会自动创建 S3 存储桶并配置 IRSA
+- **使用 IRSA**：Terraform 会自动配置 IAM Roles for Service Accounts (IRSA)，无需在 Kubernetes 中存储访问密钥
+
+---
+
+## 🚀 Step 0: 使用 Terraform 创建 EKS 集群和基础设施
+
+本步骤使用 Terraform 自动创建：
+- AWS EKS 集群（启用 IRSA）
+- VPC 和网络资源
+- S3 存储桶（用于 Loki）
+- IAM 策略和角色（IRSA）
+- Kubernetes ServiceAccount（已配置 IRSA 注解）
+
+### 0.1 配置 Terraform 变量
+
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+```
+
+编辑 `terraform/terraform.tfvars`，根据你的需求修改配置：
+
+```hcl
+# AWS 配置
+aws_region = "us-west-2"
+
+# EKS 集群配置
+cluster_name      = "monitoring-stack-cluster"
+kubernetes_version = "1.28"
+environment       = "production"
+
+# Loki S3 配置
+# 如果为空，Terraform 会自动生成唯一名称
+loki_s3_bucket_name = ""  # 留空以自动生成，或指定一个全局唯一的名称
+loki_retention_days = 30
+```
+
+**注意**：如果 `loki_s3_bucket_name` 为空，Terraform 会自动生成一个唯一名称。
+
+### 0.2 初始化 Terraform
+
+```bash
+terraform init
+```
+
+这会下载所需的 Terraform providers 和 modules。
+
+### 0.3 预览变更
+
+```bash
+terraform plan
+```
+
+检查将要创建的资源，确保配置正确。
+
+### 0.4 应用配置
+
+```bash
+terraform apply
+```
+
+输入 `yes` 确认创建资源。这可能需要 15-20 分钟，因为需要创建 EKS 集群。
+
+### 0.5 配置 kubectl
+
+Terraform 完成后，配置 kubectl 连接到新创建的集群：
+
+```bash
+# 使用 Terraform 输出获取配置命令
+terraform output -raw configure_kubectl | bash
+
+# 或手动运行
+aws eks update-kubeconfig --name <cluster-name> --region <region>
+```
+
+验证连接：
+
+```bash
+kubectl cluster-info
+kubectl get nodes
+```
+
+### 0.6 更新 Loki Values 文件
+
+Terraform 会自动创建 S3 存储桶和 ServiceAccount，现在需要更新 Loki values 文件以使用这些资源：
+
+```bash
+# 从项目根目录运行
+cd ..
+./terraform/update-loki-values.sh
+```
+
+这个脚本会：
+- 从 Terraform 输出获取 S3 存储桶名称和 AWS 区域
+- 自动更新 `monitoring/values/loki-values-s3.yaml` 文件
+- 备份原文件
+
+**手动方式**（如果脚本不可用）：
+
+```bash
+# 获取 Terraform 输出值
+BUCKET_NAME=$(terraform -chdir=terraform output -raw loki_s3_bucket_name)
+AWS_REGION=$(terraform -chdir=terraform output -raw aws_region)
+
+# 更新 loki-values-s3.yaml
+sed -i.bak \
+  -e "s|\${LOKI_S3_BUCKET_NAME}|${BUCKET_NAME}|g" \
+  -e "s|\${AWS_REGION}|${AWS_REGION}|g" \
+  monitoring/values/loki-values-s3.yaml
+```
+
+### 0.7 验证 Terraform 创建的资源
+
+```bash
+# 检查 ServiceAccount（应该已配置 IRSA 注解）
+kubectl get serviceaccount -n monitoring loki-s3-service-account -o yaml
+
+# 应该看到注解：
+# eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/<role-name>
+
+# 检查 S3 存储桶
+terraform -chdir=terraform output loki_s3_bucket_name
+
+# 检查 IAM Role
+terraform -chdir=terraform output loki_iam_role_arn
+```
+
+**Terraform 输出值：**
+
+```bash
+# 查看所有输出
+cd terraform
+terraform output
+
+# 常用输出
+terraform output cluster_name
+terraform output loki_s3_bucket_name
+terraform output loki_iam_role_arn
+terraform output configure_kubectl
+```
+
+---
 
 ## 🚀 Step 1: 安装 ArgoCD
 
@@ -958,7 +1099,22 @@ kubectl get configmap -n monitoring promtail -o yaml
 
 ## 📝 快速命令总结
 
+### 完整流程（使用 Terraform）
+
 ```bash
+# 0. 使用 Terraform 创建 EKS 集群和基础设施
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+# 编辑 terraform.tfvars
+terraform init
+terraform plan
+terraform apply
+terraform output -raw configure_kubectl | bash
+
+# 更新 Loki values 文件
+cd ..
+./terraform/update-loki-values.sh
+
 # 1. 安装 ArgoCD
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
@@ -987,6 +1143,21 @@ kubectl apply -f monitoring/argocd/prometheus.yaml
 # 7. 访问 Grafana
 kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 # http://localhost:3000 (admin/admin)
+```
+
+### 清理资源（可选）
+
+```bash
+# 删除 Kubernetes 资源
+kubectl delete -f monitoring/argocd/prometheus.yaml
+kubectl delete -f monitoring/argocd/promtail.yaml
+kubectl delete -f monitoring/argocd/loki.yaml
+kubectl delete -f test-app/argocd/nginx-app.yaml
+kubectl delete namespace argocd
+
+# 删除 Terraform 创建的所有资源（包括 EKS 集群）
+cd terraform
+terraform destroy
 ```
 
 ---
