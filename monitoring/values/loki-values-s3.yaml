@@ -47,10 +47,24 @@ loki:
       #   key: AWS_ACCESS_KEY_ID
 
 # Persistent storage (for index, not log data)
+# For SimpleScalable mode, need to configure persistence for each component
 persistence:
   enabled: true
   storageClassName: gp3
   size: 10Gi
+
+# SimpleScalable mode component persistence configuration
+simpleScalable:
+  backend:
+    persistence:
+      enabled: true
+      storageClassName: gp3
+      size: 10Gi
+  write:
+    persistence:
+      enabled: true
+      storageClassName: gp3
+      size: 10Gi
 
 # ServiceAccount configuration (if using IRSA)
 # Terraform will automatically create ServiceAccount and associate IAM Role
