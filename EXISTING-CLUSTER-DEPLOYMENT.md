@@ -243,178 +243,243 @@ kubectl get nodes
 - S3 Bucket（用于 Loki 存储）
 - IAM Role 和 Policy（用于 IRSA）
 
-#### 1.1 准备 Terraform 配置
+#### 1.1 使用 AWS CDK TypeScript 创建资源（推荐）
 
-**重要**：由于集群已存在，我们需要修改 Terraform 配置，只创建必要的资源。
-
-**选项 A：使用 Terraform 只创建 AWS 资源（推荐）**
-
-创建 `terraform/main-existing-cluster.tf`（或修改现有配置）：
-
-```hcl
-# 使用 data source 引用现有集群
-data "aws_eks_cluster" "existing" {
-  name = var.cluster_name
-}
-
-data "aws_eks_cluster_auth" "existing" {
-  name = var.cluster_name
-}
-
-# 获取 OIDC Provider
-data "aws_iam_openid_connect_provider" "existing" {
-  url = data.aws_eks_cluster.existing.identity[0].oidc[0].issuer
-}
-
-# 注释掉或删除以下资源（因为集群已存在）：
-# - module.eks
-# - module.vpc
-# - aws_eks_addon.ebs_csi_driver（如果已存在）
-
-# 只保留以下资源：
-# - aws_s3_bucket.loki_storage
-# - aws_iam_role.loki_s3_role
-# - aws_iam_policy.loki_s3_access
-# - kubernetes_storage_class.gp3（如果不存在）
-```
-
-**选项 B：手动创建 AWS 资源（如果不想使用 Terraform）**
-
-如果不想使用 Terraform，可以手动创建：
+**创建 CDK 项目结构**：
 
 ```bash
-# 1. 创建 S3 Bucket
-BUCKET_NAME="<cluster-name>-loki-storage-$(openssl rand -hex 4)"
-aws s3 mb s3://$BUCKET_NAME --region <region>
+# 创建 CDK 项目目录
+mkdir -p cdk-monitoring-stack
+cd cdk-monitoring-stack
 
-# 2. 配置 S3 Bucket
-aws s3api put-bucket-versioning \
-  --bucket $BUCKET_NAME \
-  --versioning-configuration Status=Enabled \
-  --region <region>
+# 初始化 CDK TypeScript 项目
+cdk init app --language typescript
 
-aws s3api put-bucket-encryption \
-  --bucket $BUCKET_NAME \
-  --server-side-encryption-configuration '{
-    "Rules": [{
-      "ApplyServerSideEncryptionByDefault": {
-        "SSEAlgorithm": "AES256"
-      }
-    }]
-  }' \
-  --region <region>
+# 安装必要的依赖（CDK v2 使用 aws-cdk-lib）
+npm install aws-cdk-lib constructs
+```
 
-# 3. 创建 IAM Policy
-cat > loki-s3-policy.json <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:DeleteObject",
-        "s3:ListBucket"
+**创建 CDK Stack** (`lib/cdk-monitoring-stack-stack.ts`)：
+
+```typescript
+import * as cdk from "aws-cdk-lib";
+import * as s3 from "aws-cdk-lib/aws-s3";
+import * as iam from "aws-cdk-lib/aws-iam";
+import { Construct } from "constructs";
+
+export interface MonitoringStackProps extends cdk.StackProps {
+  clusterName: string;
+  oidcProviderArn: string;
+  oidcIssuerUrl: string;
+  retentionDays?: number;
+}
+
+export class MonitoringStackStack extends cdk.Stack {
+  public readonly lokiBucket: s3.Bucket;
+  public readonly lokiRole: iam.Role;
+
+  constructor(scope: Construct, id: string, props: MonitoringStackProps) {
+    super(scope, id, props);
+
+    const {
+      clusterName,
+      oidcProviderArn,
+      oidcIssuerUrl,
+      retentionDays = 30,
+    } = props;
+
+    // 1. 创建 S3 Bucket for Loki
+    this.lokiBucket = new s3.Bucket(this, "LokiStorageBucket", {
+      bucketName: `${clusterName}-loki-storage-${this.account.substring(0, 8)}`,
+      versioned: true,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // 允许删除非空 bucket
+      autoDeleteObjects: true, // 自动删除对象
+      lifecycleRules: [
+        {
+          id: "delete-old-logs",
+          enabled: true,
+          expiration: cdk.Duration.days(retentionDays),
+          noncurrentVersionExpiration: cdk.Duration.days(retentionDays),
+        },
       ],
-      "Resource": [
-        "arn:aws:s3:::${BUCKET_NAME}",
-        "arn:aws:s3:::${BUCKET_NAME}/*"
-      ]
-    }
-  ]
-}
-EOF
+    });
 
-aws iam create-policy \
-  --policy-name <cluster-name>-loki-s3-access-policy \
-  --policy-document file://loki-s3-policy.json \
-  --region <region>
+    // 2. 创建 IAM Policy for S3 access
+    const lokiS3Policy = new iam.Policy(this, "LokiS3AccessPolicy", {
+      policyName: `${clusterName}-loki-s3-access-policy`,
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "s3:PutObject",
+            "s3:GetObject",
+            "s3:DeleteObject",
+            "s3:ListBucket",
+          ],
+          resources: [
+            this.lokiBucket.bucketArn,
+            `${this.lokiBucket.bucketArn}/*`,
+          ],
+        }),
+      ],
+    });
 
-# 4. 创建 IAM Role（需要 OIDC Provider ARN）
-OIDC_ARN=$(aws iam list-open-id-connect-providers --query \
-  "OpenIDConnectProviderList[?contains(Arn, '$(echo $OIDC_URL | cut -d'/' -f2)')].Arn" \
-  --output text)
+    // 3. 创建 IAM Role for IRSA
+    const oidcProvider = iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(
+      this,
+      "OidcProvider",
+      oidcProviderArn
+    );
 
-# 创建信任策略
-cat > trust-policy.json <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "${OIDC_ARN}"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "${OIDC_URL}:sub": "system:serviceaccount:monitoring:loki-s3-service-account",
-          "${OIDC_URL}:aud": "sts.amazonaws.com"
+    const oidcIssuer = oidcIssuerUrl.replace("https://", "");
+
+    this.lokiRole = new iam.Role(this, "LokiS3Role", {
+      roleName: `${clusterName}-loki-s3-role`,
+      assumedBy: new iam.WebIdentityPrincipal(
+        oidcProvider.openIdConnectProviderArn,
+        {
+          StringEquals: {
+            [`${oidcIssuer}:sub`]:
+              "system:serviceaccount:monitoring:loki-s3-service-account",
+            [`${oidcIssuer}:aud`]: "sts.amazonaws.com",
+          },
         }
-      }
-    }
-  ]
+      ),
+    });
+
+    // 4. 附加策略到角色
+    this.lokiRole.attachInlinePolicy(lokiS3Policy);
+
+    // 5. 输出值
+    new cdk.CfnOutput(this, "LokiBucketName", {
+      value: this.lokiBucket.bucketName,
+      exportName: `${clusterName}-loki-bucket-name`,
+    });
+
+    new cdk.CfnOutput(this, "LokiRoleArn", {
+      value: this.lokiRole.roleArn,
+      exportName: `${clusterName}-loki-role-arn`,
+    });
+
+    new cdk.CfnOutput(this, "AwsRegion", {
+      value: this.region,
+      exportName: `${clusterName}-aws-region`,
+    });
+  }
 }
-EOF
-
-aws iam create-role \
-  --role-name <cluster-name>-loki-s3-role \
-  --assume-role-policy-document file://trust-policy.json \
-  --region <region>
-
-# 5. 附加策略到角色
-POLICY_ARN=$(aws iam list-policies --query \
-  "Policies[?PolicyName=='<cluster-name>-loki-s3-access-policy'].Arn" \
-  --output text)
-
-aws iam attach-role-policy \
-  --role-name <cluster-name>-loki-s3-role \
-  --policy-arn $POLICY_ARN \
-  --region <region>
 ```
 
-#### 1.2 运行 Terraform（如果使用选项 A）
+**更新 CDK App** (`bin/cdk-monitoring-stack.ts`)：
+
+```typescript
+#!/usr/bin/env node
+import "source-map-support/register";
+import * as cdk from "aws-cdk-lib";
+import { MonitoringStackStack } from "../lib/cdk-monitoring-stack-stack";
+
+const app = new cdk.App();
+
+// 从环境变量或配置文件获取集群信息
+const clusterName = process.env.CLUSTER_NAME || "your-cluster-name";
+const oidcProviderArn =
+  process.env.OIDC_PROVIDER_ARN ||
+  "arn:aws:iam::ACCOUNT:oidc-provider/oidc.eks.REGION.amazonaws.com/id/ID";
+const oidcIssuerUrl =
+  process.env.OIDC_ISSUER_URL || "https://oidc.eks.REGION.amazonaws.com/id/ID";
+const retentionDays = parseInt(process.env.RETENTION_DAYS || "30");
+
+new MonitoringStackStack(app, "MonitoringStackStack", {
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION || "ap-southeast-2",
+  },
+  clusterName,
+  oidcProviderArn,
+  oidcIssuerUrl,
+  retentionDays,
+});
+```
+
+**创建配置文件** (`.env.example`)：
 
 ```bash
-cd terraform
+# 集群信息
+CLUSTER_NAME=your-cluster-name
+CDK_DEFAULT_REGION=ap-southeast-2
+CDK_DEFAULT_ACCOUNT=123456789012
 
-# 创建 terraform.tfvars
-cat > terraform.tfvars <<EOF
-cluster_name = "<your-cluster-name>"
-aws_region   = "<your-region>"
+# OIDC Provider 信息（从集群获取）
+OIDC_PROVIDER_ARN=arn:aws:iam::123456789012:oidc-provider/oidc.eks.ap-southeast-2.amazonaws.com/id/ABCDEFGHIJKLMNOP
+OIDC_ISSUER_URL=https://oidc.eks.ap-southeast-2.amazonaws.com/id/ABCDEFGHIJKLMNOP
 
-# 重要：设置为 false，因为资源已存在
-create_ebs_csi_driver = false
-create_kubernetes_resources = false  # 让 ArgoCD 创建 namespace
-create_loadbalancer_services = false  # 如果已有 LoadBalancer
-EOF
+# Loki 配置
+RETENTION_DAYS=30
+```
 
-# 初始化
-terraform init
+#### 1.2 部署 CDK Stack
 
-# 预览（只应该显示 S3 和 IAM 资源）
-terraform plan
+```bash
+# 1. 获取 OIDC Provider 信息
+export CLUSTER_NAME="<your-cluster-name>"
+export AWS_REGION="<your-region>"
 
-# 应用
-terraform apply
+# 获取 OIDC Issuer URL
+export OIDC_ISSUER_URL=$(aws eks describe-cluster \
+  --name $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --query 'cluster.identity.oidc.issuer' \
+  --output text)
+
+# 获取 OIDC Provider ARN
+export OIDC_PROVIDER_ARN=$(aws iam list-open-id-connect-providers \
+  --query "OpenIDConnectProviderList[?contains(Url, '$(echo $OIDC_ISSUER_URL | sed 's|https://||')')].Arn" \
+  --output text)
+
+# 2. 设置环境变量
+export CDK_DEFAULT_REGION=$AWS_REGION
+export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+# 3. 构建和部署
+cd cdk-monitoring-stack
+npm install
+npm run build
+cdk synth
+cdk deploy --require-approval never
+
+# 4. 获取输出值
+export BUCKET_NAME=$(aws cloudformation describe-stacks \
+  --stack-name MonitoringStackStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`LokiBucketName`].OutputValue' \
+  --output text)
+
+export ROLE_ARN=$(aws cloudformation describe-stacks \
+  --stack-name MonitoringStackStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`LokiRoleArn`].OutputValue' \
+  --output text)
+
+echo "S3 Bucket: $BUCKET_NAME"
+echo "IAM Role ARN: $ROLE_ARN"
+echo "AWS Region: $AWS_REGION"
 ```
 
 #### 1.3 记录输出值
 
 ```bash
-# 获取 S3 Bucket 名称
-BUCKET_NAME=$(terraform output -raw loki_s3_bucket_name)
-echo "S3 Bucket: $BUCKET_NAME"
+# 保存输出值供后续使用
+cat > .env <<EOF
+BUCKET_NAME=$BUCKET_NAME
+ROLE_ARN=$ROLE_ARN
+AWS_REGION=$AWS_REGION
+EOF
 
-# 获取 IAM Role ARN
-ROLE_ARN=$(terraform output -raw loki_s3_role_arn)
-echo "IAM Role ARN: $ROLE_ARN"
-
-# 获取 AWS 区域
-AWS_REGION=$(terraform output -raw aws_region)
-echo "AWS Region: $AWS_REGION"
+source .env
 ```
+
+**选项 B：手动创建 AWS 资源（如果不想使用 CDK）**
+
+如果不想使用 CDK，可以手动创建（参考原文档中的手动创建步骤）。
 
 ---
 
@@ -451,33 +516,112 @@ kubectl get serviceaccount loki-s3-service-account -n monitoring -o yaml
 
 ---
 
-### Step 3: 更新 Loki Values 文件
+### Step 3: 更新 Values 文件配置
 
-#### 3.1 更新 S3 Bucket 名称和区域
+#### 3.1 更新 Loki Values 文件
 
-编辑 `monitoring/values/loki-values-s3.yaml`：
+编辑 `monitoring/values/loki-values-s3.yaml`，使用从 Step 1.3 获取的值：
 
 ```yaml
+# Loki configuration - Using default SimpleScalable mode (requires S3)
+# Use default SimpleScalable mode
+deploymentMode: SimpleScalable
+
+# Loki storage configuration - AWS S3
 loki:
+  auth_enabled: false
+  # Schema configuration (required for SimpleScalable mode)
+  # Loki 3.0.0 requires schema v13 and tsdb index type
+  schemaConfig:
+    configs:
+      - from: "2020-10-24"
+        store: tsdb # 必须
+        object_store: s3
+        schema: v13 # 必须
+        index:
+          prefix: index_
+          period: 24h
+  # Disable structured metadata to avoid validation errors
+  limits_config:
+    allow_structured_metadata: false
   storage:
+    type: s3
     bucketNames:
-      chunks: <BUCKET_NAME> # 从 Step 1.3 获取
-      ruler: <BUCKET_NAME>
+      chunks: <BUCKET_NAME> # 从 Step 1.3 获取，例如: eks-test-loki-storage-565c7d68
+      ruler: <BUCKET_NAME> # 从 Step 1.3 获取
     s3:
-      region: <AWS_REGION> # 从 Step 1.3 获取
+      endpoint: s3.amazonaws.com
+      region: <AWS_REGION> # 从 Step 1.3 获取，例如: ap-southeast-2
+      s3ForcePathStyle: false
+      # IRSA 会自动处理认证，无需配置 accessKeyId 和 secretAccessKey
+
+# Persistent storage (for index, not log data)
+# For SimpleScalable mode, need to configure persistence for each component
+persistence:
+  enabled: true
+  storageClassName: gp3
+  size: 10Gi
+
+# SimpleScalable mode component persistence configuration
+simpleScalable:
+  backend:
+    persistence:
+      enabled: true
+      storageClassName: gp3
+      size: 10Gi
+      # 必须配置 volumeClaimTemplate，确保 StatefulSet 使用正确的 StorageClass
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+  write:
+    persistence:
+      enabled: true
+      storageClassName: gp3
+      size: 10Gi
+      # 必须配置 volumeClaimTemplate
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+
+# ServiceAccount configuration (if using IRSA)
+serviceAccount:
+  create: false # 不自动创建，使用手动创建的（Step 2.2）
+  name: loki-s3-service-account # 必须与 Step 2.2 中的名称一致
+
+# Cache components configuration
+# Reduce resource requests to fit within node capacity
+chunksCache:
+  enabled: true
+  # Reduce Memcached allocated memory from default 8192MB to 1024MB (1GB)
+  # This should match the Kubernetes memory limits
+  allocatedMemory: 1024 # MB, reduced from default 8192MB
+  maxItemMemory: 5 # MB, maximum item size
+  connectionLimit: 16384
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi # Reduced from default 9830Mi to fit node capacity (~3.8GB)
+    limits:
+      memory: 2Gi # Allow some burst but limit to prevent OOM
+
+resultsCache:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
 ```
 
-**或者使用脚本自动更新**：
+**使用脚本自动更新**：
 
 ```bash
-# 如果使用 Terraform
-cd terraform
-./update-loki-values.sh
+# 如果使用 CDK
+cd cdk-monitoring-stack
+source .env
 
-# 或手动更新
-BUCKET_NAME=$(terraform output -raw loki_s3_bucket_name)
-AWS_REGION=$(terraform output -raw aws_region)
-
+# 更新 loki-values-s3.yaml
 sed -i.bak \
   -e "s|chunks:.*|chunks: ${BUCKET_NAME}|g" \
   -e "s|ruler:.*|ruler: ${BUCKET_NAME}|g" \
@@ -485,22 +629,101 @@ sed -i.bak \
   ../monitoring/values/loki-values-s3.yaml
 ```
 
-#### 3.2 验证 ServiceAccount 配置
+#### 3.2 Prometheus Values 文件配置
 
-确保 `monitoring/values/loki-values-s3.yaml` 中：
+确保 `monitoring/values/prometheus-values.yaml` 配置正确：
 
 ```yaml
-serviceAccount:
-  create: false # 不自动创建，使用手动创建的
-  name: loki-s3-service-account # 必须与 Step 2.2 中的名称一致
+# Prometheus configuration
+prometheus:
+  enabled: true
+  prometheusSpec:
+    retention: 30d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3 # 必须
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+# Grafana configuration
+grafana:
+  enabled: true
+  # Use secret to configure admin account
+  secret:
+    admin-user: admin
+    admin-password: "admin" # 生产环境请使用强密码
+  persistence:
+    enabled: true
+    storageClassName: gp3 # 必须
+    size: 10Gi
+  service:
+    type: ClusterIP # 使用 ClusterIP，LoadBalancer 由其他方式管理
+  # 重要：使用 additionalDataSources 而不是 datasources
+  # kube-prometheus-stack 会自动创建 Prometheus 数据源
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc:3100
+      isDefault: false # Prometheus 已由 kube-prometheus-stack 设置为默认
+      editable: true
+  # Pre-installed dashboards
+  dashboards:
+    default:
+      kubernetes-cluster-monitoring:
+        gnetId: 7249
+        revision: 1
+        datasource: Prometheus
+      node-exporter:
+        gnetId: 1860
+        revision: 27
+        datasource: Prometheus
+      nginx-exporter:
+        gnetId: 12708
+        revision: 1
+        datasource: Prometheus
+      loki-logs:
+        gnetId: 13639
+        revision: 1
+        datasource: Loki
+
+# Enable other components
+alertmanager:
+  enabled: true
+nodeExporter:
+  enabled: true
+kubeStateMetrics:
+  enabled: true
+defaultRules:
+  create: true
 ```
 
-#### 3.3 提交更改到 Git
+#### 3.3 Promtail Values 文件配置
+
+确保 `monitoring/values/promtail-values.yaml` 配置正确：
+
+```yaml
+# Promtail configuration
+# Configure Promtail to connect to Loki
+config:
+  clients:
+    - url: http://loki.monitoring.svc:3100/loki/api/v1/push
+```
+
+#### 3.4 提交更改到 Git
 
 ```bash
 # 提交更新的 values 文件
 git add monitoring/values/loki-values-s3.yaml
-git commit -m "chore: Update Loki S3 bucket name and region for existing cluster"
+git add monitoring/values/prometheus-values.yaml
+git add monitoring/values/promtail-values.yaml
+git commit -m "chore: Update monitoring stack values files for existing cluster"
 git push origin main
 ```
 
@@ -803,8 +1026,11 @@ chunksCache:
 # 检查 ConfigMap 中的 bucket 名称
 kubectl get configmap loki -n monitoring -o yaml | grep bucketnames
 
-# 应该与 Terraform 输出一致
-terraform output loki_s3_bucket_name
+# 应该与 CDK 输出一致
+aws cloudformation describe-stacks \
+  --stack-name MonitoringStackStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`LokiBucketName`].OutputValue' \
+  --output text
 ```
 
 ### 2. Prometheus 配置要点
@@ -1111,7 +1337,11 @@ NoSuchBucket
 1. 获取正确的 bucket 名称：
 
 ```bash
-terraform output loki_s3_bucket_name
+# 如果使用 CDK
+aws cloudformation describe-stacks \
+  --stack-name MonitoringStackStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`LokiBucketName`].OutputValue' \
+  --output text
 ```
 
 2. 更新 values 文件：
@@ -1193,7 +1423,12 @@ kubectl annotate application loki -n argocd argocd.argoproj.io/refresh=hard --ov
 - [ ] S3 Bucket 存在且可访问
 
   ```bash
-  aws s3 ls s3://$(terraform output -raw loki_s3_bucket_name)
+  # 如果使用 CDK
+  BUCKET_NAME=$(aws cloudformation describe-stacks \
+    --stack-name MonitoringStackStack \
+    --query 'Stacks[0].Outputs[?OutputKey==`LokiBucketName`].OutputValue' \
+    --output text)
+  aws s3 ls s3://$BUCKET_NAME
   ```
 
 - [ ] IAM Role 存在且配置正确
