@@ -143,7 +143,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "loki_storage" {
   }
 }
 
-# 配置 S3 存储桶生命周期规则（可选，用于清理旧数据）
+# 配置 S3 存储桶生命周期规则（用于清理旧数据和版本）
 resource "aws_s3_bucket_lifecycle_configuration" "loki_storage" {
   bucket = aws_s3_bucket.loki_storage.id
 
@@ -151,8 +151,14 @@ resource "aws_s3_bucket_lifecycle_configuration" "loki_storage" {
     id     = "delete-old-logs"
     status = "Enabled"
 
+    # 删除过期的对象
     expiration {
       days = var.loki_retention_days
+    }
+
+    # 删除旧版本（有助于在 destroy 时删除 bucket）
+    noncurrent_version_expiration {
+      noncurrent_days = var.loki_retention_days
     }
   }
 }
